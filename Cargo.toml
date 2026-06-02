@@ -1,0 +1,13 @@
+[workspace]
+members = [
+    "crates/kylin-doctor-core",
+    "crates/kylin-doctor-cli",
+]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/your-org/kylin-doctor"
+description = "银河麒麟桌面系统自我诊断工具"

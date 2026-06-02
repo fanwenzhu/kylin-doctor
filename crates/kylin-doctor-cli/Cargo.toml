@@ -1,0 +1,15 @@
+[package]
+name = "kylin-doctor-cli"
+version.workspace = true
+edition.workspace = true
+
+[[bin]]
+name = "kylin-doctor"
+path = "src/main.rs"
+
+[dependencies]
+kylin-doctor-core = { path = "../kylin-doctor-core" }
+clap = { version = "4", features = ["derive"] }
+indicatif = "0.17"
+colored = "3"
+anyhow = "1"
