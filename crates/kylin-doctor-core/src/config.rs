@@ -153,7 +153,7 @@ fn default_verbose() -> u8 { 1 }
 fn default_true() -> bool { true }
 fn default_strategy() -> String { "local".to_string() }
 fn default_endpoint() -> String { "http://localhost:11434".to_string() }
-fn default_model() -> String { "qwen2.5:1.5b".to_string() }
+fn default_model() -> String { "qwen2.5:3b".to_string() }
 fn default_cloud_provider() -> String { "qwen".to_string() }
 fn default_web_host() -> String { "127.0.0.1".to_string() }
 fn default_web_port() -> u16 { 8080 }
@@ -212,7 +212,7 @@ strategy = "local"       # local / cloud / hybrid
 
 [llm.local]
 endpoint = "http://localhost:11434"
-model = "qwen2.5:1.5b"
+model = "qwen2.5:3b"
 
 [llm.cloud]
 provider = "qwen"        # qwen / deepseek / moonshot / custom
@@ -244,7 +244,7 @@ mod tests {
         assert!(!config.general.offline);
         assert_eq!(config.llm.strategy, "local");
         assert_eq!(config.llm.local.endpoint, "http://localhost:11434");
-        assert_eq!(config.llm.local.model, "qwen2.5:1.5b");
+        assert_eq!(config.llm.local.model, "qwen2.5:3b");
         assert_eq!(config.web.host, "127.0.0.1");
         assert_eq!(config.web.port, 8080);
         assert_eq!(config.daemon.interval, 3600);
@@ -315,7 +315,7 @@ port = 3000
         assert_eq!(config.web.port, 3000);
         // Other fields should use defaults
         assert_eq!(config.general.verbose, 1);
-        assert_eq!(config.llm.local.model, "qwen2.5:1.5b");
+        assert_eq!(config.llm.local.model, "qwen2.5:3b");
     }
 
     #[test]

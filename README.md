@@ -18,7 +18,7 @@
 # 基础安装（编译 + 安装到 /usr/local/bin）
 curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/install.sh | sudo bash
 
-# 安装并自动配置 AI 模型（Ollama + qwen2.5:1.5b）
+# 安装并自动配置 AI 模型（Ollama + qwen2.5:3b）
 curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/install.sh | sudo bash -s -- --with-ollama
 
 # 或克隆后手动安装

@@ -306,7 +306,7 @@ kylin-doctor -p hybrid chat
 
 ```
 🤖 kylin-doctor AI 诊断助手
-   模型: qwen2.5:1.5b (local)
+   模型: qwen2.5:3b (local)
    输入 /help 查看帮助，输入 exit 退出
 
 you> 我的系统最近变得很慢，可能是什么原因？

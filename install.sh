@@ -423,7 +423,7 @@ step_5_install_ollama() {
         log_info "跳过 Ollama 安装"
         log_info "如需 AI 功能，稍后可手动安装:"
         echo "    curl -fsSL https://ollama.com/install.sh | sh"
-        echo "    ollama pull qwen2.5:1.5b"
+        echo "    ollama pull qwen2.5:3b"
         echo "    ollama pull nomic-embed-text"
         return
     fi
@@ -450,11 +450,11 @@ step_5_install_ollama() {
     fi
 
     # 拉取对话模型
-    log_info "拉取对话模型 qwen2.5:1.5b (约 1GB，请耐心等待)..."
-    if ollama pull qwen2.5:1.5b 2>&1 | tail -3; then
+    log_info "拉取对话模型 qwen2.5:3b (约 2GB，请耐心等待)..."
+    if ollama pull qwen2.5:3b 2>&1 | tail -3; then
         log_ok "对话模型安装完成"
     else
-        log_warn "对话模型下载失败，可稍后手动执行: ollama pull qwen2.5:1.5b"
+        log_warn "对话模型下载失败，可稍后手动执行: ollama pull qwen2.5:3b"
     fi
 
     # 拉取嵌入模型

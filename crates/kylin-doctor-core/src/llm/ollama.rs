@@ -26,7 +26,7 @@ impl OllamaProvider {
     }
 
     pub fn default_local() -> Self {
-        Self::new("http://localhost:11434", "qwen2.5:1.5b")
+        Self::new("http://localhost:11434", "qwen2.5:3b")
     }
 }
 
