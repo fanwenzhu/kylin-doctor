@@ -10,7 +10,7 @@ struct Cli {
     #[arg(short, long, default_value = "1", global = true)]
     verbose: u8,
 
-    /// LLM 提供商: local / cloud
+    /// LLM 提供商: local / cloud / hybrid
     #[arg(short, long, default_value = "local", global = true)]
     provider: String,
 
@@ -22,33 +22,32 @@ struct Cli {
 enum Commands {
     /// 全面系统扫描
     Scan(commands::scan::ScanArgs),
-    /// 生成诊断报告
-    Report,
-    /// 进入 AI 对话模式
-    Chat,
+    /// 生成诊断报告 (JSON/HTML)
+    Report(commands::report::ReportArgs),
+    /// 进入 AI 对话模式（也可单次提问: kylin-doctor chat 你的问题）
+    Chat(commands::chat::ChatArgs),
+    /// 知识库管理（添加文档、生成向量、测试检索）
+    Knowledge(commands::knowledge::KnowledgeArgs),
     /// 启动 Web 仪表盘
-    Serve,
+    Serve(commands::serve::ServeArgs),
     /// 修复发现的问题
-    Fix,
+    Fix(commands::fix::FixArgs),
 }
 
-fn main() -> anyhow::Result<()> {
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
-        Commands::Scan(args) => commands::scan::execute(&args, cli.verbose)?,
-        Commands::Report => {
-            println!("📋 报告功能尚未实现，敬请期待。");
+        Commands::Scan(args) => {
+            let exit_code = commands::scan::execute(&args, cli.verbose)?;
+            std::process::exit(exit_code);
         }
-        Commands::Chat => {
-            println!("🤖 AI 对话功能尚未实现，敬请期待。");
-        }
-        Commands::Serve => {
-            println!("🌐 Web 仪表盘尚未实现，敬请期待。");
-        }
-        Commands::Fix => {
-            println!("🔧 修复功能尚未实现，敬请期待。");
-        }
+        Commands::Report(args) => commands::report::execute(&args)?,
+        Commands::Chat(args) => commands::chat::execute(&args, &cli.provider).await?,
+        Commands::Knowledge(args) => commands::knowledge::execute(&args).await?,
+        Commands::Serve(args) => commands::serve::execute(&args).await?,
+        Commands::Fix(args) => commands::fix::execute(&args)?,
     }
 
     Ok(())

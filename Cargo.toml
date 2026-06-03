@@ -2,6 +2,7 @@
 members = [
     "crates/kylin-doctor-core",
     "crates/kylin-doctor-cli",
+    "crates/kylin-doctor-web",
 ]
 resolver = "2"
 

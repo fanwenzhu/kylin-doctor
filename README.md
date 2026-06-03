@@ -18,7 +18,7 @@
 cargo build --release
 ```
 
-### 使用
+### CLI 使用
 
 ```bash
 # 全面扫描
@@ -27,11 +27,43 @@ kylin-doctor scan
 # 只扫描系统模块
 kylin-doctor scan --module system
 
-# 详细输出（开发者模式）
-kylin-doctor scan --verbose 2
+# 快速扫描（跳过耗时项）
+kylin-doctor scan --quick
 
-# 简要输出（普通用户模式）
-kylin-doctor scan --verbose 0
+# 修复问题
+kylin-doctor fix                  # 扫描并修复所有问题
+kylin-doctor fix --dry-run        # 预览修复，不执行
+kylin-doctor fix --yes            # 跳过确认
+kylin-doctor fix --auto-only      # 只修复可自动修复的
+kylin-doctor fix --critical-only  # 只修复严重问题
+kylin-doctor fix --module security # 只修复安全模块
+
+# 生成诊断报告
+kylin-doctor report                           # JSON 输出到 stdout
+kylin-doctor report --format html             # HTML 输出
+kylin-doctor report --output report.html      # 保存到文件
+
+# AI 对话（支持 Function Calling 自动诊断）
+kylin-doctor chat
+kylin-doctor chat 我的系统为什么变慢了
+
+# 混合模式（本地优先，失败回退云端）
+kylin-doctor --provider hybrid chat
+
+# 知识库管理
+kylin-doctor knowledge add ./docs/ --recursive
+kylin-doctor knowledge embed
+kylin-doctor knowledge test "如何配置打印机"
+```
+
+### Web 仪表盘
+
+```bash
+# 启动 Web 服务
+kylin-doctor serve
+kylin-doctor serve --port 9090
+
+# 浏览器打开 http://127.0.0.1:8080
 ```
 
 ### 输出示例
@@ -60,9 +92,9 @@ kylin-doctor scan --verbose 0
 kylin-doctor/
 ├── Cargo.toml
 ├── crates/
-│   ├── kylin-doctor-core/    # 核心检测逻辑
-│   └── kylin-doctor-cli/     # CLI 命令行工具
-├── web/                      # Web 仪表盘（规划中）
+│   ├── kylin-doctor-core/    # 核心检测逻辑 + LLM 集成
+│   ├── kylin-doctor-cli/     # CLI 命令行工具
+│   └── kylin-doctor-web/     # Web 仪表盘
 └── docs/                     # 设计文档
 ```
 
@@ -71,20 +103,21 @@ kylin-doctor/
 | 组件 | 技术 |
 |------|------|
 | CLI 框架 | clap (Rust) |
-| Web 后端 | Axum (规划中) |
-| Web 前端 | Vue 3 + Element Plus (规划中) |
-| 本地模型 | Ollama + Qwen2.5 (规划中) |
+| Web 后端 | Axum |
+| Web 前端 | 单文件 HTML（内嵌 CSS/JS） |
+| 本地模型 | Ollama + Qwen2.5 |
+| 云端模型 | OpenAI 兼容 API（Qwen/DeepSeek/Moonshot） |
 | 系统检测 | Shell 命令 + /proc |
 
 ## 路线图
 
 - [x] 第一阶段：项目骨架 + 系统检测模块 + CLI scan 命令
-- [ ] 第二阶段：硬件检测模块 (hardware.rs)
-- [ ] 第三阶段：软件生态模块 (software.rs)
-- [ ] 第四阶段：安全审计模块 (security.rs)
-- [ ] 第五阶段：性能分析模块 (performance.rs)
-- [ ] 第六阶段：AI 集成 (Ollama + RAG)
-- [ ] 第七阶段：Web 仪表盘
+- [x] 第二阶段：硬件检测模块 (hardware.rs)
+- [x] 第三阶段：软件生态模块 (software.rs)
+- [x] 第四阶段：安全审计模块 (security.rs)
+- [x] 第五阶段：性能分析模块 (performance.rs)
+- [x] 第六阶段：AI 集成 (Ollama + 云端模型)
+- [x] 第七阶段：Web 仪表盘
 
 ## License
 

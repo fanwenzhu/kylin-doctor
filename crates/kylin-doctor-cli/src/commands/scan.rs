@@ -1,7 +1,7 @@
 use clap::Args;
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
-use kylin_doctor_core::{Detector, ScanReport, Severity, SystemDetector};
+use kylin_doctor_core::{Detector, HardwareDetector, PerformanceDetector, ScanReport, SecurityDetector, Severity, SoftwareDetector, SystemDetector};
 use std::time::Duration;
 
 #[derive(Args, Debug)]
@@ -18,18 +18,52 @@ pub struct ScanArgs {
 #[derive(clap::ValueEnum, Clone, Debug)]
 pub enum Module {
     System,
+    Hardware,
+    Software,
+    Security,
+    Performance,
 }
 
-/// 执行扫描
-pub fn execute(args: &ScanArgs, verbose: u8) -> anyhow::Result<()> {
+/// 执行扫描，返回退出码: 0=正常, 1=有警告, 2=有严重问题
+pub fn execute(args: &ScanArgs, verbose: u8) -> anyhow::Result<i32> {
     println!("{}", "🔍 kylin-doctor 系统诊断".bold().cyan());
     println!();
 
-    let detectors: Vec<Box<dyn Detector>> = match args.module {
-        Some(Module::System) | None => {
-            vec![Box::new(SystemDetector::new())]
-        }
+    let all_detectors: Vec<Box<dyn Detector>> = match args.module {
+        Some(Module::System) => vec![Box::new(SystemDetector::new())],
+        Some(Module::Hardware) => vec![Box::new(HardwareDetector::new())],
+        Some(Module::Software) => vec![Box::new(SoftwareDetector::new())],
+        Some(Module::Security) => vec![Box::new(SecurityDetector::new())],
+        Some(Module::Performance) => vec![Box::new(PerformanceDetector::new())],
+        None => vec![
+            Box::new(SystemDetector::new()),
+            Box::new(HardwareDetector::new()),
+            Box::new(SoftwareDetector::new()),
+            Box::new(SecurityDetector::new()),
+            Box::new(PerformanceDetector::new()),
+        ],
     };
+
+    // --quick 模式：跳过耗时检测模块
+    let detectors: Vec<Box<dyn Detector>> = if args.quick {
+        let skipped: Vec<&str> = all_detectors
+            .iter()
+            .filter(|d| d.is_slow())
+            .map(|d| d.name())
+            .collect();
+        if !skipped.is_empty() {
+            println!("⚡ 快速模式，跳过: {}", skipped.join(", ").dimmed());
+            println!();
+        }
+        all_detectors.into_iter().filter(|d| !d.is_slow()).collect()
+    } else {
+        all_detectors
+    };
+
+    if detectors.is_empty() {
+        println!("{}", "没有可执行的检测模块。".yellow());
+        return Ok(0);
+    }
 
     let pb = ProgressBar::new(detectors.len() as u64);
     pb.set_style(
@@ -58,10 +92,10 @@ pub fn execute(args: &ScanArgs, verbose: u8) -> anyhow::Result<()> {
         print_report(report, verbose);
     }
 
-    // 总结
-    print_summary(&reports);
+    // 总结 + 退出码
+    let exit_code = print_summary(&reports);
 
-    Ok(())
+    Ok(exit_code)
 }
 
 fn print_report(report: &ScanReport, verbose: u8) {
@@ -125,7 +159,8 @@ fn print_report(report: &ScanReport, verbose: u8) {
     }
 }
 
-fn print_summary(reports: &[ScanReport]) {
+/// 打印总结，返回退出码: 0=正常, 1=有警告, 2=有严重问题
+fn print_summary(reports: &[ScanReport]) -> i32 {
     let mut total_info = 0;
     let mut total_warning = 0;
     let mut total_critical = 0;
@@ -152,6 +187,7 @@ fn print_summary(reports: &[ScanReport]) {
                 .red()
                 .bold()
         );
+        2
     } else if total_warning > 0 {
         println!(
             "⚠️  警告: {}  ℹ️  信息: {}",
@@ -162,10 +198,12 @@ fn print_summary(reports: &[ScanReport]) {
             "{}",
             "系统基本正常，但有警告项需要关注。".yellow()
         );
+        1
     } else {
         println!(
             "{}",
             "✅ 系统一切正常，未发现需要关注的问题。".green().bold()
         );
+        0
     }
 }

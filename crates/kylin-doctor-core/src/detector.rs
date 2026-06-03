@@ -101,4 +101,58 @@ pub trait Detector {
     fn fix(&self, finding: &Finding) -> anyhow::Result<bool>;
     /// 模块是否可用
     fn is_available(&self) -> bool;
+    /// 是否包含耗时检测（--quick 模式下跳过）
+    fn is_slow(&self) -> bool {
+        false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scan_report_summary_empty() {
+        let report = ScanReport::new("test".to_string());
+        assert_eq!(report.summary(), (0, 0, 0));
+    }
+
+    #[test]
+    fn scan_report_summary_counts() {
+        let mut report = ScanReport::new("test".to_string());
+        report.findings.push(Finding {
+            id: "1".into(), module: "test".into(), severity: Severity::Info,
+            title: "t".into(), description: "d".into(), evidence: "e".into(),
+            fix: None, auto_fixable: false,
+        });
+        report.findings.push(Finding {
+            id: "2".into(), module: "test".into(), severity: Severity::Warning,
+            title: "t".into(), description: "d".into(), evidence: "e".into(),
+            fix: None, auto_fixable: false,
+        });
+        report.findings.push(Finding {
+            id: "3".into(), module: "test".into(), severity: Severity::Critical,
+            title: "t".into(), description: "d".into(), evidence: "e".into(),
+            fix: None, auto_fixable: false,
+        });
+        report.findings.push(Finding {
+            id: "4".into(), module: "test".into(), severity: Severity::Warning,
+            title: "t".into(), description: "d".into(), evidence: "e".into(),
+            fix: None, auto_fixable: false,
+        });
+        assert_eq!(report.summary(), (1, 2, 1));
+    }
+
+    #[test]
+    fn severity_display() {
+        assert_eq!(format!("{}", Severity::Info), "info");
+        assert_eq!(format!("{}", Severity::Warning), "warning");
+        assert_eq!(format!("{}", Severity::Critical), "critical");
+    }
+
+    #[test]
+    fn severity_eq() {
+        assert_eq!(Severity::Info, Severity::Info);
+        assert_ne!(Severity::Info, Severity::Warning);
+    }
 }

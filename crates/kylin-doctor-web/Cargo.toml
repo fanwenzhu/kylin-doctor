@@ -1,20 +1,18 @@
 [package]
-name = "kylin-doctor-cli"
+name = "kylin-doctor-web"
 version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "kylin-doctor"
+name = "kylin-doctor-web"
 path = "src/main.rs"
 
 [dependencies]
 kylin-doctor-core = { path = "../kylin-doctor-core" }
-clap = { version = "4", features = ["derive"] }
-indicatif = "0.17"
-colored = "3"
-anyhow = "1"
-tokio = { version = "1", features = ["full"] }
 axum = { version = "0.8", features = ["ws"] }
+tokio = { version = "1", features = ["full"] }
 tower-http = { version = "0.6", features = ["cors"] }
-futures-util = "0.3"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+anyhow = "1"
+futures-util = "0.3"
