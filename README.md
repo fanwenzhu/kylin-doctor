@@ -119,6 +119,11 @@ kylin-doctor/
 - [x] 第六阶段：AI 集成 (Ollama + 云端模型)
 - [x] 第七阶段：Web 仪表盘
 
+## 文档
+
+- **[部署文档](docs/DEPLOYMENT.md)** — 环境要求、构建安装、配置详解、Web 部署、AI 模型配置、系统服务、Docker、故障排查
+- **[使用说明](docs/USAGE.md)** — CLI 命令详解、Web 仪表盘操作、诊断模块说明、AI 助手使用、常见场景、最佳实践
+
 ## License
 
 MIT
