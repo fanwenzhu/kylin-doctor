@@ -12,7 +12,28 @@
 
 ## 快速开始
 
-### 构建
+### 一键安装
+
+```bash
+# 基础安装（编译 + 安装到 /usr/local/bin）
+curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/install.sh | sudo bash
+
+# 安装并自动配置 AI 模型（Ollama + qwen2.5:7b）
+curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/install.sh | sudo bash -s -- --with-ollama
+
+# 或克隆后手动安装
+git clone https://github.com/fanwenzhu/kylin-doctor.git
+cd kylin-doctor
+sudo ./install.sh
+```
+
+### 卸载
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/uninstall.sh | sudo bash
+```
+
+### 从源码构建
 
 ```bash
 cargo build --release

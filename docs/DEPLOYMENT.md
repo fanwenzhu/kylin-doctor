@@ -70,6 +70,28 @@ sudo apt install -y build-essential pkg-config libssl-dev
 
 ---
 
+## 一键安装（推荐）
+
+```bash
+# 基础安装
+curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/install.sh | sudo bash
+
+# 安装并自动配置 AI 模型
+curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/install.sh | sudo bash -s -- --with-ollama
+
+# 查看所有选项
+curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/install.sh | bash -s -- --help
+```
+
+安装脚本会自动完成：检测系统环境 → 安装依赖 → 安装 Rust → 编译安装 → 配置 Ollama（可选）→ 验证安装。
+
+```bash
+# 卸载
+curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/uninstall.sh | sudo bash
+```
+
+---
+
 ## 从源码构建
 
 ### 1. 安装 Rust 工具链
