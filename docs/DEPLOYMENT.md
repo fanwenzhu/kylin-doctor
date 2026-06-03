@@ -187,7 +187,7 @@ strategy = "local"       # AI 策略: local / cloud / hybrid
 
 [llm.local]
 endpoint = "http://localhost:11434"  # Ollama 服务地址
-model = "qwen2.5:7b"                # 本地模型名称
+model = "qwen2.5:1.5b"                # 本地模型名称
 
 [llm.cloud]
 provider = "qwen"        # 云端供应商: qwen / deepseek / moonshot / custom
@@ -395,7 +395,7 @@ curl -fsSL https://ollama.com/install.sh | sh
 ollama serve &
 
 # 拉取推荐模型（7B 参数，约 4.7GB）
-ollama pull qwen2.5:7b
+ollama pull qwen2.5:1.5b
 
 # 拉取嵌入模型（用于知识库 RAG，约 274MB）
 ollama pull nomic-embed-text
@@ -407,12 +407,12 @@ curl http://localhost:11434/api/tags
 
 #### 推荐模型配置
 
-| 用途 | 模型 | 大小 | 说明 |
-|------|------|------|------|
-| 对话诊断 | `qwen2.5:7b` | ~4.7 GB | 推荐，平衡性能与质量 |
-| 对话诊断 | `qwen2.5:14b` | ~9 GB | 更高质量，需要更多内存 |
-| 对话诊断 | `qwen2.5:3b` | ~2 GB | 轻量级，资源受限环境 |
-| 文本嵌入 | `nomic-embed-text` | ~274 MB | 知识库向量化专用 |
+| 用途 | 模型 | 大小 | 运行内存 | 说明 |
+|------|------|------|----------|------|
+| 对话诊断 | `qwen2.5:1.5b` | ~1 GB | ~1.5 GB | **默认推荐**，适配 8GB 内存终端 |
+| 对话诊断 | `qwen2.5:3b` | ~2 GB | ~3 GB | 更高质量，需要 8GB+ 内存 |
+| 对话诊断 | `qwen2.5:7b` | ~4.7 GB | ~5 GB | 高质量，需要 16GB+ 内存 |
+| 文本嵌入 | `nomic-embed-text` | ~274 MB | ~300 MB | 知识库向量化专用 |
 
 #### 配置文件
 
@@ -422,7 +422,7 @@ strategy = "local"
 
 [llm.local]
 endpoint = "http://localhost:11434"
-model = "qwen2.5:7b"
+model = "qwen2.5:1.5b"
 ```
 
 #### 使用方式
