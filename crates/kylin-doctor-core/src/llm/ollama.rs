@@ -1,6 +1,7 @@
 use super::provider::{FunctionCall, LlmProvider, Message, ToolCall, ToolDefinition};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use futures_util::StreamExt;
 
 /// Ollama 本地模型提供商
 pub struct OllamaProvider {
@@ -233,5 +234,100 @@ impl LlmProvider for OllamaProvider {
             Ok(resp) => resp.status().is_success(),
             Err(_) => false,
         }
+    }
+
+    async fn chat_stream(
+        &self,
+        messages: &[Message],
+        on_chunk: Box<dyn Fn(String) + Send + 'static>,
+    ) -> anyhow::Result<String> {
+        // 调用 OllamaProvider 自身的方法
+        OllamaProvider::chat_stream(self, messages, on_chunk).await
+    }
+}
+
+/// SSE 流式响应解析
+#[derive(Deserialize)]
+struct OllamaStreamResponse {
+    message: Option<OllamaStreamMessage>,
+    done: bool,
+}
+
+#[derive(Deserialize)]
+struct OllamaStreamMessage {
+    content: Option<String>,
+}
+
+impl OllamaProvider {
+    /// 流式聊天补全
+    pub async fn chat_stream(
+        &self,
+        messages: &[Message],
+        on_chunk: Box<dyn Fn(String) + Send + 'static>,
+    ) -> anyhow::Result<String> {
+        let ollama_messages: Vec<OllamaMessage> = messages
+            .iter()
+            .map(|m| OllamaMessage {
+                role: m.role.clone(),
+                content: m.content.clone(),
+                tool_calls: None,
+            })
+            .collect();
+
+        let request = OllamaChatRequest {
+            model: self.model.clone(),
+            messages: ollama_messages,
+            stream: true,
+            tools: None,
+        };
+
+        let url = format!("{}/api/chat", self.endpoint);
+        let response = self.client.post(&url).json(&request).send().await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("Ollama API 错误 ({}): {}", status, body);
+        }
+
+        let mut full_response = String::new();
+        let mut stream = response.bytes_stream();
+
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result?;
+
+            // 解析 SSE 格式：每行以 "data: " 开头
+            let text = String::from_utf8_lossy(&chunk);
+            for line in text.lines() {
+                let line = line.trim();
+                if line.is_empty() || line.starts_with(':') {
+                    continue;
+                }
+
+                // 移除 "data: " 前缀
+                let json_str = if line.starts_with("data: ") {
+                    &line[6..]
+                } else {
+                    line
+                };
+
+                // 解析 JSON
+                if let Ok(response) = serde_json::from_str::<OllamaStreamResponse>(json_str) {
+                    if let Some(msg) = response.message {
+                        if let Some(content) = msg.content {
+                            if !content.is_empty() {
+                                full_response.push_str(&content);
+                                on_chunk(content);
+                            }
+                        }
+                    }
+                    if response.done {
+                        break;
+                    }
+                }
+            }
+        }
+
+        Ok(full_response)
     }
 }

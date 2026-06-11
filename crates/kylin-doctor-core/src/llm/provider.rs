@@ -93,6 +93,18 @@ pub trait LlmProvider: Send + Sync {
         Ok(Message::assistant(&content))
     }
 
+    /// 流式聊天补全（默认实现回退到普通chat）
+    async fn chat_stream(
+        &self,
+        messages: &[Message],
+        on_chunk: Box<dyn Fn(String) + Send + 'static>,
+    ) -> anyhow::Result<String> {
+        // 默认实现：不支持流式，回退到普通chat
+        let content = self.chat(messages).await?;
+        on_chunk(content.clone());
+        Ok(content)
+    }
+
     /// 文本向量化（RAG 用）
     async fn embed(&self, _texts: &[String]) -> anyhow::Result<Vec<Vec<f32>>> {
         anyhow::bail!("当前 LLM 提供商不支持文本向量化")

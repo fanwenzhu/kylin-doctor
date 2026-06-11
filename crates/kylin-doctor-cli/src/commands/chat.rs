@@ -4,6 +4,8 @@ use kylin_doctor_core::{
     llm::tools, Config, KnowledgeStore, LlmProvider, Message, OllamaProvider, OpenAiCompatProvider,
 };
 use std::io::{self, BufRead, Write};
+use crate::spinner::Spinner;
+use crate::markdown::render_markdown;
 
 #[derive(Args, Debug)]
 pub struct ChatArgs {
@@ -26,6 +28,19 @@ const SYSTEM_PROMPT: &str = r#"你是银河麒麟桌面系统（Kylin OS）的 A
 - 涉及 sudo 操作时明确告知需要管理员权限
 - 如果不确定答案，诚实说明并建议用户查阅官方文档
 - 当用户询问系统问题时，优先使用诊断工具获取实际数据，而非凭经验猜测"#;
+
+/// 工具显示名称映射（参考 Claude Code 的简洁风格）
+fn get_tool_display_name(tool_name: &str) -> &str {
+    match tool_name {
+        "scan_all" => "正在全面诊断系统",
+        "scan_hardware" => "正在检测硬件",
+        "scan_software" => "正在检查软件环境",
+        "scan_security" => "正在安全审计",
+        "scan_performance" => "正在分析性能",
+        "scan_system" => "正在扫描系统",
+        _ => "正在执行诊断",
+    }
+}
 
 /// 创建 LLM 提供商
 fn create_provider(config: &Config, provider_override: &str) -> Box<dyn LlmProvider> {
@@ -163,8 +178,7 @@ pub async fn execute(args: &ChatArgs, provider_name: &str) -> anyhow::Result<()>
         match io::stdin().lock().read_line(&mut input) {
             Ok(0) => break,
             Ok(_) => {}
-            Err(e) => {
-                eprintln!("读取输入失败: {}", e);
+            Err(_) => {
                 break;
             }
         }
@@ -185,10 +199,17 @@ pub async fn execute(args: &ChatArgs, provider_name: &str) -> anyhow::Result<()>
                 continue;
             }
             "scan" | "扫描" => {
-                println!("🔍 正在执行全面诊断...");
+                let spinner = Spinner::new("正在全面诊断系统");
+                spinner.start();
                 match tools::execute_tool("scan_all") {
-                    Ok(result) => println!("{}", result),
-                    Err(e) => eprintln!("❌ 诊断失败: {}", e),
+                    Ok(result) => {
+                        spinner.stop(true);
+                        println!();
+                        println!("{}", render_markdown(&result));
+                    }
+                    Err(_) => {
+                        spinner.stop(false);
+                    }
                 }
                 println!();
                 continue;
@@ -209,16 +230,17 @@ pub async fn execute(args: &ChatArgs, provider_name: &str) -> anyhow::Result<()>
                     messages.push(response.clone());
 
                     for tc in tool_calls {
-                        println!(
-                            "{}",
-                            format!("  🔧 调用工具: {}...", tc.function.name).dimmed()
-                        );
+                        let display_name = get_tool_display_name(&tc.function.name);
+                        let spinner = Spinner::new(display_name);
+                        spinner.start();
 
                         match tools::execute_tool(&tc.function.name) {
                             Ok(result) => {
+                                spinner.stop(true);
                                 messages.push(Message::tool_result(&tc.id, &result));
                             }
                             Err(e) => {
+                                spinner.stop(false);
                                 messages.push(Message::tool_result(
                                     &tc.id,
                                     &format!("工具执行失败: {}", e),
@@ -228,22 +250,40 @@ pub async fn execute(args: &ChatArgs, provider_name: &str) -> anyhow::Result<()>
                     }
 
                     // 工具结果返回给 LLM 生成最终回答
+                    println!();
                     print!("{}", "🤖 助手: ".bold().blue());
                     io::stdout().flush()?;
 
-                    match provider.chat(&messages).await {
-                        Ok(final_response) => {
-                            println!("{}", final_response);
-                            messages.push(Message::assistant(&final_response));
+                    // 流式输出最终回答
+                    let full_response = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+                    let full_response_clone = full_response.clone();
+                    match provider
+                        .chat_stream(&messages, Box::new(move |chunk: String| {
+                            print!("{}", chunk);
+                            io::stdout().flush().unwrap();
+                            if let Ok(mut resp) = full_response_clone.lock() {
+                                resp.push_str(&chunk);
+                            }
+                        }))
+                        .await
+                    {
+                        Ok(_) => {
+                            println!();
+                            if let Ok(resp) = full_response.lock() {
+                                messages.push(Message::assistant(&resp));
+                            }
                         }
                         Err(e) => {
+                            println!();
                             eprintln!("{} {}", "❌ 请求失败:".red(), e);
                             messages.pop(); // 移除用户消息
                         }
                     }
                 } else {
-                    // 普通文本回复
-                    println!("{}", response.content);
+                    // 普通文本回复 - 流式输出
+                    println!();
+                    let rendered = render_markdown(&response.content);
+                    print!("{}", rendered);
                     messages.push(response);
                 }
             }
@@ -251,16 +291,34 @@ pub async fn execute(args: &ChatArgs, provider_name: &str) -> anyhow::Result<()>
                 // hybrid 回退
                 if actual_provider_name == "hybrid" {
                     if let Some(cloud) = create_cloud_provider(&config) {
+                        println!();
                         println!(
                             "{}",
                             "  ⚠️  本地模型失败，切换到云端...".yellow().dimmed()
                         );
-                        match cloud.chat(&messages).await {
-                            Ok(response) => {
-                                println!("{}", response);
-                                messages.push(Message::assistant(&response));
+                        print!("{}", "🤖 助手: ".bold().blue());
+                        io::stdout().flush()?;
+
+                        let full_response = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+                        let full_response_clone = full_response.clone();
+                        match cloud
+                            .chat_stream(&messages, Box::new(move |chunk: String| {
+                                print!("{}", chunk);
+                                io::stdout().flush().unwrap();
+                                if let Ok(mut resp) = full_response_clone.lock() {
+                                    resp.push_str(&chunk);
+                                }
+                            }))
+                            .await
+                        {
+                            Ok(_) => {
+                                println!();
+                                if let Ok(resp) = full_response.lock() {
+                                    messages.push(Message::assistant(&resp));
+                                }
                             }
                             Err(e2) => {
+                                println!();
                                 eprintln!("{} {}", "❌ 请求失败:".red(), e2);
                                 messages.pop();
                             }
@@ -303,17 +361,43 @@ async fn ask_once(
             if let Some(ref tool_calls) = response.tool_calls {
                 messages.push(response.clone());
                 for tc in tool_calls {
-                    eprintln!("{}", format!("  🔧 调用工具: {}...", tc.function.name).dimmed());
+                    let display_name = get_tool_display_name(&tc.function.name);
+                    let spinner = Spinner::new(display_name);
+                    spinner.start();
+
                     if let Ok(result) = tools::execute_tool(&tc.function.name) {
+                        spinner.stop(true);
                         messages.push(Message::tool_result(&tc.id, &result));
+                    } else {
+                        spinner.stop(false);
                     }
                 }
-                match provider.chat(&messages).await {
-                    Ok(final_response) => println!("{}", final_response),
-                    Err(e) => eprintln!("❌ 请求失败: {}", e),
+
+                // 流式输出最终回答
+                println!();
+                let full_response = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+                let full_response_clone = full_response.clone();
+                match provider
+                    .chat_stream(&messages, Box::new(move |chunk: String| {
+                        print!("{}", chunk);
+                        io::stdout().flush().unwrap();
+                        if let Ok(mut resp) = full_response_clone.lock() {
+                            resp.push_str(&chunk);
+                        }
+                    }))
+                    .await
+                {
+                    Ok(_) => println!(),
+                    Err(e) => {
+                        println!();
+                        eprintln!("❌ 请求失败: {}", e);
+                    }
                 }
             } else {
-                println!("{}", response.content);
+                // 流式输出普通回复
+                println!();
+                let rendered = render_markdown(&response.content);
+                print!("{}", rendered);
             }
         }
         Err(e) => eprintln!("❌ 请求失败: {}", e),

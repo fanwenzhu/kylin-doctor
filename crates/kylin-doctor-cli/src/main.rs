@@ -1,4 +1,6 @@
 mod commands;
+mod spinner;
+mod markdown;
 
 use clap::{Parser, Subcommand};
 
