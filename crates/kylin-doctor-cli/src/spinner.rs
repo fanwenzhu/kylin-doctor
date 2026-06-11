@@ -76,6 +76,7 @@ impl Spinner {
     /// # Arguments
     /// * `icon` - 自定义图标（如 "⚠️"）
     /// * `suffix` - 消息后缀
+    #[allow(dead_code)]
     pub fn stop_with(&self, icon: &str, suffix: &str) {
         self.running.store(false, Ordering::SeqCst);
 
@@ -104,6 +105,7 @@ impl Drop for Spinner {
 ///     Ok("扫描结果".to_string())
 /// }).await?;
 /// ```
+#[allow(dead_code)]
 pub async fn with_spinner<F, T, E>(message: &str, future: F) -> Result<T, E>
 where
     F: std::future::Future<Output = Result<T, E>>,

@@ -1,5 +1,3 @@
-use std::fmt::Write;
-
 /// 简单的终端 Markdown 渲染器
 ///
 /// 将 Markdown 文本转换为带 ANSI 颜色的终端输出
@@ -118,7 +116,6 @@ fn render_inline(text: &str) -> String {
                 // 链接 [text](url)
                 let mut link_text = String::new();
                 let mut link_url = String::new();
-                let mut in_url = false;
 
                 // 收集链接文本
                 while let Some(nc) = chars.next() {
@@ -168,6 +165,7 @@ fn render_inline(text: &str) -> String {
 /// 流式渲染 Markdown（逐字输出）
 ///
 /// 在流式输出时使用，每个 chunk 调用此函数
+#[allow(dead_code)]
 pub fn render_markdown_chunk(chunk: &str) -> String {
     // 简单处理：直接返回，不做复杂渲染
     // 复杂渲染需要维护状态，流式输出时不适合
