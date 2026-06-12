@@ -600,8 +600,24 @@ step_3_install_rust() {
         export CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"
 
         log_to_file "安装 Rust 到 $CARGO_HOME"
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | \
-            sh -s -- -y --default-toolchain stable >> "$LOG_FILE" 2>&1
+
+        # 下载 rustup 安装脚本
+        local rustup_init="/tmp/rustup-init-$$"
+        if ! curl --proto '=https' --tlsv1.2 -sSf -o "$rustup_init" https://sh.rustup.rs; then
+            fail_with_hint "Rust 安装脚本下载失败" \
+                "网络问题，请检查网络连接或使用国内镜像:
+        export RUSTUP_DIST_SERVER=https://mirrors.ustc.edu.cn/rust-static
+        export RUSTUP_UPDATE_ROOT=https://mirrors.ustc.edu.cn/rust-static/rustup
+        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+        fi
+
+        # 执行安装
+        if ! sh "$rustup_init" -y --default-toolchain stable >> "$LOG_FILE" 2>&1; then
+            rm -f "$rustup_init"
+            fail_with_hint "Rust 安装失败" \
+                "请手动安装: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+        fi
+        rm -f "$rustup_init"
 
         if [[ -f "$CARGO_HOME/env" ]]; then
             source "$CARGO_HOME/env"
@@ -871,12 +887,20 @@ step_5_install_ollama() {
         log_info "安装 Ollama..."
         log_to_file "下载并安装 Ollama"
 
-        # 带重试的下载
+        # 下载 Ollama 安装脚本
+        local ollama_script="/tmp/ollama-install-$$"
+        if ! curl -fsSL -o "$ollama_script" https://ollama.com/install.sh; then
+            log_warn "Ollama 安装脚本下载失败，AI 功能将不可用"
+            log_info "可稍后手动安装: curl -fsSL https://ollama.com/install.sh | sh"
+            return
+        fi
+
+        # 带重试的安装
         local retry_count=0
         local max_retries=3
 
         while [[ $retry_count -lt $max_retries ]]; do
-            if curl -fsSL https://ollama.com/install.sh | sh >> "$LOG_FILE" 2>&1; then
+            if sh "$ollama_script" >> "$LOG_FILE" 2>&1; then
                 break
             fi
             retry_count=$((retry_count + 1))
@@ -885,6 +909,7 @@ step_5_install_ollama() {
                 sleep 2
             fi
         done
+        rm -f "$ollama_script"
 
         if ! command -v ollama &>/dev/null; then
             log_warn "Ollama 安装失败，AI 功能将不可用"
