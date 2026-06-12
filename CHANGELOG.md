@@ -1,0 +1,41 @@
+# Changelog
+
+本文件记录 kylin-doctor 的所有重要变更。
+
+格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
+版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+
+## [0.2.0] - 2026-06-10
+
+### 新增 (Added)
+- **AI 问答流式输出**: 支持 SSE 流式响应，逐字显示 AI 回复
+- **Spinner 动画组件**: 工具调用时显示 Braille 字符动画
+- **终端 Markdown 渲染**: 支持代码块、粗体、斜体、列表、标题、链接
+- **安装脚本日志系统**: 安装过程记录到 `/var/log/kylin-doctor-install.log`
+- **安装失败提示**: 错误时显示日志位置和常见问题解决方案
+- **依赖冲突自动修复**: `--fix-deps` 选项自动处理 libssl-dev 版本冲突
+- **默认配置文件**: 安装时自动创建 `~/.kylin-doctor/config.toml` 并提供详细注释
+
+### 改进 (Changed)
+- **AI 问答体验**: 移除调试输出，使用 ✅/❌ 图标表示操作状态
+- **安装脚本**: 新增 `run_cmd`/`run_cmd_warn` 函数，命令输出同时记录到日志
+- **默认模型**: 从 qwen2.5:1.5b 改为 qwen2.5:3b（平衡速度和质量）
+
+### 修复 (Fixed)
+- 清理编译 warnings
+
+## [0.1.0] - 2026-06-02
+
+### 新增 (Added)
+- **系统检测模块**: CPU、内存、磁盘、进程、PCI 设备、USB 设备、SMART 等
+- **CLI 命令**: `scan`、`fix`、`report`、`chat`、`knowledge`、`serve`
+- **Web 仪表盘**: 基于 Axum 的 Web 服务，提供实时监控和 AI 对话
+- **AI 对话功能**: 集成 Ollama 本地模型和云端 API（通义千问、DeepSeek、月之暗面）
+- **知识库系统**: RAG 检索增强，支持文档导入和语义搜索
+- **诊断报告**: 支持 HTML、JSON、Markdown 格式输出
+- **一键安装脚本**: 支持自动安装依赖、Rust 工具链、Ollama
+- **一键卸载脚本**: 支持清理程序文件、配置、Ollama
+- **部署文档**: 包含源码编译、systemd 服务、Docker 部署方式
+
+[0.2.0]: https://github.com/fanwenzhu/kylin-doctor/compare/v0.1.0...v0.2.0
+[0.1.0]: https://github.com/fanwenzhu/kylin-doctor/releases/tag/v0.1.0
