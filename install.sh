@@ -19,7 +19,34 @@
 #   --log <path>      日志文件路径 (默认: /var/log/kylin-doctor-install.log)
 #   --help            显示帮助信息
 
-set -euo pipefail
+set -uo pipefail
+# 注意: 不使用 set -e，改为手动错误处理，避免静默退出
+
+# 错误 trap - 显示详细错误信息
+error_handler() {
+    local line_no=$1
+    local command="$2"
+    local error_code=$3
+    echo ""
+    echo -e "${RED}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${RED}${BOLD}  ✗ 安装失败${NC}"
+    echo -e "${RED}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "  错误位置: 第 $line_no 行"
+    echo "  错误命令: $command"
+    echo "  错误代码: $error_code"
+    echo ""
+    if [[ -n "${LOG_FILE:-}" ]]; then
+        echo "  日志文件: $LOG_FILE"
+        echo "  查看详情: tail -50 $LOG_FILE"
+        echo "[$(date '+%Y-%m-%d %H:%M:%S')] ERROR: 第 $line_no 行失败，命令: $command，退出码: $error_code" >> "$LOG_FILE" 2>/dev/null || true
+    fi
+    echo ""
+    exit $error_code
+}
+
+# 设置 ERR trap
+trap 'error_handler ${LINENO} "$BASH_COMMAND" $?' ERR
 
 # ============================================================
 # 颜色与符号
@@ -603,12 +630,26 @@ step_3_install_rust() {
 
         # 下载 rustup 安装脚本
         local rustup_init="/tmp/rustup-init-$$"
-        if ! curl --proto '=https' --tlsv1.2 -sSf -o "$rustup_init" https://sh.rustup.rs; then
-            fail_with_hint "Rust 安装脚本下载失败" \
-                "网络问题，请检查网络连接或使用国内镜像:
-        export RUSTUP_DIST_SERVER=https://mirrors.ustc.edu.cn/rust-static
-        export RUSTUP_UPDATE_ROOT=https://mirrors.ustc.edu.cn/rust-static/rustup
-        curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
+        log_info "下载 Rust 安装脚本..."
+        if ! curl --proto '=https' --tlsv1.2 --connect-timeout 30 --retry 3 -f -o "$rustup_init" https://sh.rustup.rs 2>> "$LOG_FILE"; then
+            echo ""
+            echo "  ${RED}Rust 安装脚本下载失败${NC}"
+            echo ""
+            echo "  可能原因:"
+            echo "    1. 网络连接问题"
+            echo "    2. 无法访问 https://sh.rustup.rs"
+            echo ""
+            echo "  解决方案:"
+            echo "    1. 检查网络: ping sh.rustup.rs"
+            echo "    2. 使用国内镜像安装:"
+            echo "       export RUSTUP_DIST_SERVER=https://mirrors.ustc.edu.cn/rust-static"
+            echo "       export RUSTUP_UPDATE_ROOT=https://mirrors.ustc.edu.cn/rust-static/rustup"
+            echo "       curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+            echo "    3. 跳过 Rust 安装:"
+            echo "       sudo ./install.sh --skip-rust"
+            echo ""
+            log_to_file "ERROR: Rust 安装脚本下载失败"
+            exit 1
         fi
 
         # 执行安装
