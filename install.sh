@@ -9,6 +9,7 @@
 #   chmod +x install.sh && sudo ./install.sh
 #
 # 选项:
+#   --upgrade         升级已安装版本 (保留配置)
 #   --skip-deps       跳过依赖安装
 #   --skip-rust       跳过 Rust 安装
 #   --skip-ollama     跳过 Ollama 安装
@@ -75,6 +76,7 @@ SKIP_RUST=false
 SKIP_OLLAMA=true  # 默认不安装 Ollama
 WITH_OLLAMA=false
 FIX_DEPS=false
+UPGRADE=false
 LOG_FILE="/var/log/kylin-doctor-install.log"
 
 # ============================================================
@@ -224,6 +226,79 @@ fail_with_hint() {
 # ============================================================
 # 辅助函数
 # ============================================================
+
+# 比较版本号 (返回 0: 相等, 1: 第一个更大, 2: 第二个更大)
+version_compare() {
+    local v1="$1"
+    local v2="$2"
+
+    # 移除 v 前缀
+    v1="${v1#v}"
+    v2="${v2#v}"
+
+    # 分割版本号
+    local IFS='.'
+    local -a ver1=($v1)
+    local -a ver2=($v2)
+
+    # 比较每一段
+    for i in 0 1 2; do
+        local num1="${ver1[$i]:-0}"
+        local num2="${ver2[$i]:-0}"
+
+        if [[ "$num1" -gt "$num2" ]]; then
+            return 1
+        elif [[ "$num1" -lt "$num2" ]]; then
+            return 2
+        fi
+    done
+
+    return 0
+}
+
+# 获取已安装版本
+get_installed_version() {
+    local bin="$INSTALL_PREFIX/bin/kylin-doctor"
+    if [[ -f "$bin" ]]; then
+        "$bin" --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1
+    fi
+}
+
+# 获取远程最新版本
+get_remote_version() {
+    git ls-remote --tags "$REPO_URL" 2>/dev/null \
+        | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+$' \
+        | sort -V \
+        | tail -1 \
+        | sed 's/^v//'
+}
+
+# 获取版本之间的提交日志
+get_changelog_between() {
+    local from_ver="$1"
+    local to_ver="$2"
+
+    # 克隆仓库（浅克隆）
+    local tmp_dir="/tmp/kylin-doctor-changelog-$$"
+    rm -rf "$tmp_dir"
+
+    if git clone --depth 50 "$REPO_URL" "$tmp_dir" >> "$LOG_FILE" 2>&1; then
+        cd "$tmp_dir"
+        # 尝试获取两个版本之间的提交
+        local from_tag="v$from_ver"
+        local to_tag="v$to_ver"
+
+        if git rev-parse "$from_tag" >/dev/null 2>&1 && git rev-parse "$to_tag" >/dev/null 2>&1; then
+            git log --oneline "$from_tag..$to_tag" 2>/dev/null
+        else
+            # 如果 tag 不存在，显示最近的提交
+            git log --oneline -10 2>/dev/null
+        fi
+        cd /
+    fi
+
+    rm -rf "$tmp_dir"
+}
 
 check_root() {
     if [[ $EUID -ne 0 ]]; then
@@ -417,6 +492,7 @@ kylin-doctor 一键安装脚本
   sudo ./install.sh [选项]
 
 选项:
+  --upgrade         升级已安装版本 (保留配置，跳过依赖安装)
   --skip-deps       跳过系统依赖安装
   --skip-rust       跳过 Rust 工具链安装
   --skip-ollama     跳过 Ollama 安装 (默认)
@@ -433,6 +509,9 @@ kylin-doctor 一键安装脚本
 
   # 首次安装 (推荐，自动修复依赖)
   sudo ./install.sh --fix-deps
+
+  # 升级已安装版本
+  sudo ./install.sh --upgrade
 
   # 安装并配置 AI 模型
   sudo ./install.sh --with-ollama
@@ -452,6 +531,7 @@ EOF
 parse_args() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --upgrade)      UPGRADE=true; SKIP_DEPS=true; SKIP_RUST=true ;;
             --skip-deps)    SKIP_DEPS=true ;;
             --skip-rust)    SKIP_RUST=true ;;
             --skip-ollama)  SKIP_OLLAMA=true ;;
@@ -760,6 +840,198 @@ step_4_build_install() {
     log_ok "清理构建临时文件"
 
     log_ok "安装完成"
+}
+
+# 升级函数 - 只更新二进制，保留配置
+step_upgrade() {
+    log_step 4 "升级 kylin-doctor"
+
+    # 检查是否已安装
+    local installed_ver
+    installed_ver=$(get_installed_version)
+
+    if [[ -z "$installed_ver" ]]; then
+        log_err "未检测到已安装的 kylin-doctor"
+        echo ""
+        echo "  请先运行完整安装:"
+        echo "    sudo ./install.sh"
+        echo ""
+        exit 1
+    fi
+
+    # 获取远程最新版本
+    log_info "检查最新版本..."
+    local remote_ver
+    remote_ver=$(get_remote_version)
+
+    if [[ -z "$remote_ver" ]]; then
+        log_warn "无法获取远程版本信息，将使用 master 分支最新代码"
+        remote_ver="latest"
+    fi
+
+    echo ""
+    echo "  当前版本: ${BOLD}$installed_ver${NC}"
+    echo "  最新版本: ${BOLD}$remote_ver${NC}"
+    echo ""
+
+    # 版本比较
+    if [[ "$remote_ver" != "latest" ]]; then
+        version_compare "$installed_ver" "$remote_ver"
+        local cmp_result=$?
+
+        if [[ $cmp_result -eq 0 ]]; then
+            log_ok "已是最新版本 ($installed_ver)"
+            echo ""
+            read -p "  是否强制重新编译? [y/N] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                return 0
+            fi
+        elif [[ $cmp_result -eq 1 ]]; then
+            log_warn "本地版本 ($installed_ver) 比远程版本 ($remote_ver) 更新"
+            echo ""
+            read -p "  是否继续? [y/N] " -n 1 -r
+            echo
+            if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+                return 0
+            fi
+        else
+            log_info "发现新版本: $installed_ver → $remote_ver"
+
+            # 显示更新日志
+            echo ""
+            echo "  ${BOLD}更新内容:${NC}"
+            get_changelog_between "$installed_ver" "$remote_ver" | while read -r line; do
+                echo "    $line"
+            done
+            echo ""
+        fi
+    fi
+
+    # 备份当前二进制
+    log_info "备份当前版本..."
+    local backup_dir="/tmp/kylin-doctor-backup-$$"
+    mkdir -p "$backup_dir"
+
+    if [[ -f "$INSTALL_PREFIX/bin/kylin-doctor" ]]; then
+        cp "$INSTALL_PREFIX/bin/kylin-doctor" "$backup_dir/"
+    fi
+    if [[ -f "$INSTALL_PREFIX/bin/kylin-doctor-web" ]]; then
+        cp "$INSTALL_PREFIX/bin/kylin-doctor-web" "$backup_dir/"
+    fi
+    log_ok "备份完成: $backup_dir"
+
+    # 清理旧的构建目录
+    rm -rf "$BUILD_DIR"
+
+    log_info "克隆最新代码..."
+    run_cmd "克隆 $BRANCH 分支" git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$BUILD_DIR"
+
+    cd "$BUILD_DIR"
+
+    log_info "编译项目 (release 模式，可能需要几分钟)..."
+    echo ""
+
+    # 编译，输出到日志
+    log_to_file "开始 cargo build --release"
+    if cargo build --release >> "$LOG_FILE" 2>&1; then
+        log_ok "编译成功"
+    else
+        # 编译失败，恢复备份
+        log_err "编译失败，正在恢复备份..."
+        if [[ -f "$backup_dir/kylin-doctor" ]]; then
+            cp "$backup_dir/kylin-doctor" "$INSTALL_PREFIX/bin/"
+        fi
+        if [[ -f "$backup_dir/kylin-doctor-web" ]]; then
+            cp "$backup_dir/kylin-doctor-web" "$INSTALL_PREFIX/bin/"
+        fi
+        rm -rf "$backup_dir"
+        fail_with_hint "编译失败，已恢复到原版本" \
+            "查看详细错误: grep -A5 'error\\[' $LOG_FILE"
+    fi
+    echo ""
+
+    # 检查编译产物
+    local bin_dir="$BUILD_DIR/target/release"
+    local cli_bin="$bin_dir/kylin-doctor"
+    local web_bin="$bin_dir/kylin-doctor-web"
+
+    if [[ ! -f "$cli_bin" ]]; then
+        log_err "CLI 二进制编译失败，正在恢复备份..."
+        if [[ -f "$backup_dir/kylin-doctor" ]]; then
+            cp "$backup_dir/kylin-doctor" "$INSTALL_PREFIX/bin/"
+        fi
+        rm -rf "$backup_dir"
+        fail_with_hint "CLI 二进制编译失败，已恢复到原版本" \
+            "检查编译日志: tail -100 $LOG_FILE"
+    fi
+    log_ok "CLI 编译成功"
+
+    if [[ ! -f "$web_bin" ]]; then
+        log_warn "Web 二进制编译失败 (非致命)"
+    else
+        log_ok "Web 二进制编译成功"
+    fi
+
+    # 运行测试
+    log_info "运行测试..."
+    if cargo test --quiet >> "$LOG_FILE" 2>&1; then
+        log_ok "所有测试通过"
+    else
+        log_warn "部分测试失败 (非致命，继续升级)"
+        log_to_file "WARN: 部分测试失败"
+    fi
+
+    # 安装新版本
+    log_info "安装新版本到 $INSTALL_PREFIX/bin/ ..."
+    mkdir -p "$INSTALL_PREFIX/bin"
+
+    cp "$cli_bin" "$INSTALL_PREFIX/bin/kylin-doctor"
+    chmod +x "$INSTALL_PREFIX/bin/kylin-doctor"
+    log_ok "已更新: $INSTALL_PREFIX/bin/kylin-doctor"
+
+    if [[ -f "$web_bin" ]]; then
+        cp "$web_bin" "$INSTALL_PREFIX/bin/kylin-doctor-web"
+        chmod +x "$INSTALL_PREFIX/bin/kylin-doctor-web"
+        log_ok "已更新: $INSTALL_PREFIX/bin/kylin-doctor-web"
+    fi
+
+    # 清理
+    cd /
+    rm -rf "$BUILD_DIR"
+
+    # 显示升级结果
+    local new_ver
+    new_ver=$(get_installed_version)
+
+    echo ""
+    echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo -e "${GREEN}${BOLD}  ✅ 升级完成！${NC}"
+    echo -e "${GREEN}${BOLD}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+    echo ""
+    echo "  版本变化: ${BOLD}$installed_ver${NC} → ${BOLD}${new_ver:-unknown}${NC}"
+    echo ""
+    echo "  ${BOLD}配置文件:${NC} (保持不变)"
+    echo "    ~/.kylin-doctor/config.toml"
+    echo ""
+    echo "  ${BOLD}备份位置:${NC}"
+    echo "    $backup_dir"
+    echo ""
+    echo "  ${BOLD}日志文件:${NC}"
+    echo "    $LOG_FILE"
+    echo ""
+
+    # 询问是否删除备份
+    read -p "  是否删除备份文件? [y/N] " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        rm -rf "$backup_dir"
+        log_ok "备份已删除"
+    else
+        log_info "备份保留在: $backup_dir"
+    fi
+
+    log_to_file "升级完成: $installed_ver -> $new_ver"
 }
 
 # 创建默认配置文件
@@ -1107,6 +1379,15 @@ main() {
     echo ""
 
     check_root "$@"
+
+    # 升级模式
+    if $UPGRADE; then
+        step_1_check_environment
+        step_upgrade
+        return
+    fi
+
+    # 安装模式
     step_1_check_environment
 
     # 依赖冲突修复
