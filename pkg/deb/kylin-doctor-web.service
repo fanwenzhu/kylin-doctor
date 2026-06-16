@@ -1,0 +1,15 @@
+[Unit]
+Description=kylin-doctor Web Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/bin/kylin-doctor-web
+Environment=HOST=0.0.0.0
+Environment=PORT=8080
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

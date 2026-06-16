@@ -8,6 +8,7 @@
 ## [0.3.0] - 2026-06-15
 
 ### 新增 (Added)
+- **deb 安装包支持**: 新增 `build-deb.sh` 一键打包脚本，支持 amd64/arm64 架构
 - **Anthropic Claude 支持**: 新增 `AnthropicProvider`，支持 Anthropic Messages API 原生协议（流式输出 + Function Calling）
 - **Web 端流式输出**: WebSocket 支持 `stream_start`/`stream_chunk`/`stream_end` 消息类型，AI 回复逐 token 实时显示
 - **Web 端 Markdown 渲染**: 内联 `renderMd()` 解析器，支持代码块、粗体、斜体、有序/无序列表、标题、链接、表格、引用

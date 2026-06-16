@@ -1,0 +1,36 @@
+# kylin-doctor 配置文件
+# 位置: ~/.kylin-doctor/config.toml
+# 复制此文件并按需修改: cp /usr/share/kylin-doctor/config.toml.example ~/.kylin-doctor/config.toml
+
+[general]
+verbose = 1              # 输出详细程度: 0=简要, 1=标准, 2=详细
+auto_fix = false         # 是否自动修复（不建议开启）
+confirm_before_fix = true # 修复前是否需要确认
+offline = false          # 完全禁止网络请求
+
+[llm]
+strategy = "local"       # AI 策略: local / cloud / hybrid
+
+[llm.local]
+endpoint = "http://localhost:11434"  # Ollama 服务地址
+model = "qwen2.5:3b"                # 本地模型名称
+
+[llm.cloud]
+provider = "qwen"        # 云端供应商: qwen / deepseek / moonshot / anthropic / custom
+model = "qwen-plus"      # 云端模型名称
+api_key_env = "QWEN_API_KEY"  # API Key 环境变量名
+endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+# Anthropic Claude 配置示例:
+# provider = "anthropic"
+# model = "claude-sonnet-4-20250514"
+# api_key_env = "ANTHROPIC_API_KEY"
+# endpoint = "https://api.anthropic.com"
+
+[web]
+host = "127.0.0.1"       # Web 仪表盘监听地址
+port = 8080              # Web 仪表盘监听端口
+
+[daemon]
+interval = 3600          # 守护进程巡检间隔（秒）
+notify = true            # 是否发送桌面通知
