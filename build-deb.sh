@@ -35,8 +35,13 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "选项:"
             echo "  --arch ARCH      指定目标架构 (amd64 或 arm64，默认自动检测)"
-            echo "  --skip-build     跳过编译，使用已有的 target/release 二进制"
+            echo "  --skip-build     跳过编译，使用已有的二进制"
             echo "  -h, --help       显示帮助"
+            echo ""
+            echo "示例:"
+            echo "  $0                          # 编译当前架构并打包"
+            echo "  $0 --arch arm64             # 交叉编译 arm64 并打包"
+            echo "  $0 --arch amd64 --skip-build  # 跳过编译，直接打包"
             exit 0
             ;;
         *) log_err "未知参数: $1"; exit 1 ;;
@@ -44,15 +49,32 @@ while [[ $# -gt 0 ]]; do
 done
 
 # --- 检测架构 ---
+HOST_ARCH=$(uname -m)
 if [[ -z "$ARCH" ]]; then
-    case "$(uname -m)" in
+    case "$HOST_ARCH" in
         x86_64)  ARCH="amd64" ;;
         aarch64) ARCH="arm64" ;;
-        *) log_err "不支持的架构: $(uname -m)"; exit 1 ;;
+        *) log_err "不支持的架构: $HOST_ARCH"; exit 1 ;;
     esac
 fi
 
+# 判断是否需要交叉编译
+CROSS=false
+CARGO_TARGET=""
+case "$ARCH" in
+    amd64)  CARGO_TARGET="x86_64-unknown-linux-gnu" ;;
+    arm64)  CARGO_TARGET="aarch64-unknown-linux-gnu" ;;
+    *) log_err "不支持的目标架构: $ARCH"; exit 1 ;;
+esac
+
+if [[ "$ARCH" == "arm64" && "$HOST_ARCH" == "x86_64" ]] || \
+   [[ "$ARCH" == "amd64" && "$HOST_ARCH" == "aarch64" ]]; then
+    CROSS=true
+fi
+
+log_info "宿主架构: $HOST_ARCH"
 log_info "目标架构: $ARCH"
+[[ "$CROSS" == true ]] && log_info "交叉编译: $CARGO_TARGET"
 
 # --- 读取版本号 ---
 VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
@@ -71,16 +93,40 @@ log_info "输出: $DIST_DIR/${DEB_NAME}.deb"
 
 # --- 编译 ---
 if [[ "$SKIP_BUILD" == false ]]; then
-    log_info "编译 release 版本..."
-    cargo build --release 2>&1
+    if [[ "$CROSS" == true ]]; then
+        log_info "交叉编译 release 版本 ($CARGO_TARGET)..."
+
+        # 检查交叉编译器
+        case "$ARCH" in
+            arm64)
+                if ! which aarch64-linux-gnu-gcc >/dev/null 2>&1; then
+                    log_err "找不到交叉编译器 aarch64-linux-gnu-gcc"
+                    log_err "安装: sudo apt install gcc-aarch64-linux-gnu (Debian) 或 sudo dnf install gcc-aarch64-linux-gnu (RHEL)"
+                    exit 1
+                fi
+                export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+                ;;
+        esac
+
+        cargo build --release --target "$CARGO_TARGET" 2>&1
+    else
+        log_info "编译 release 版本..."
+        cargo build --release 2>&1
+    fi
     log_ok "编译完成"
 else
     log_warn "跳过编译，使用已有二进制"
 fi
 
-# --- 检查二进制文件 ---
-BIN_CLI="$SCRIPT_DIR/target/release/kylin-doctor"
-BIN_WEB="$SCRIPT_DIR/target/release/kylin-doctor-web"
+# --- 确定二进制路径 ---
+if [[ "$CROSS" == true ]]; then
+    BIN_DIR="$SCRIPT_DIR/target/$CARGO_TARGET/release"
+else
+    BIN_DIR="$SCRIPT_DIR/target/release"
+fi
+
+BIN_CLI="$BIN_DIR/kylin-doctor"
+BIN_WEB="$BIN_DIR/kylin-doctor-web"
 
 if [[ ! -f "$BIN_CLI" ]]; then
     log_err "找不到二进制: $BIN_CLI"
