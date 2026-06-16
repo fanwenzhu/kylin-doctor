@@ -5,6 +5,29 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.0] - 2026-06-15
+
+### 新增 (Added)
+- **Web 端流式输出**: WebSocket 支持 `stream_start`/`stream_chunk`/`stream_end` 消息类型，AI 回复逐 token 实时显示
+- **Web 端 Markdown 渲染**: 内联 `renderMd()` 解析器，支持代码块、粗体、斜体、有序/无序列表、标题、链接、表格、引用
+- **Web 端工具调用可视化**: 黄色 spinner 显示工具执行状态，扫描结果支持折叠/展开
+- **Web 端打字光标动画**: 流式输出时显示 `▊` 光标闪烁动画
+- **CLI 思考状态提示**: `chat_with_tools` 调用期间显示 `⠋ 正在思考...` spinner
+- **CLI 上下文管理命令**: `clear`/`清屏`/`重置` 重置对话，`history`/`历史` 查看对话摘要
+- **CLI 错误恢复机制**: 流式输出失败时自动回退到非流式批量输出
+
+### 改进 (Changed)
+- **CLI 流式输出全覆盖**: 普通回复、工具调用后回复、hybrid 回退路径全部走流式输出
+- **CLI 统一输出格式**: 所有回复路径使用 `🤖 助手:` 前缀 + 空行分隔，视觉体验一致
+- **CLI 辅助函数重构**: 提取 `stream_llm_response()` 统一流式输出逻辑，消除重复代码
+- **Web 端后端架构**: `stream_to_socket()` 使用 `tokio::sync::mpsc` + `std::sync::mpsc` 双层 channel 桥接同步回调与异步 WebSocket
+- **Web 端非工具调用路径**: 从非流式改为流式输出（需两次 LLM 调用）
+
+### 修复 (Fixed)
+- **CLI 消息恢复错误**: 修复工具调用流式失败时 `messages.pop()` 删除错误消息的问题，改用 `messages.truncate(checkpoint)` 正确恢复
+- **CLI 上下文裁剪断裂**: 修复裁剪时可能切断工具调用组（assistant(tool_calls) + tool_results）的问题
+- **Web 端有序列表渲染**: 修复有序列表被错误包裹在 `<ul>` 中的 bug，采用逐行分组算法分离处理
+
 ## [0.2.0] - 2026-06-12
 
 ### 新增 (Added)
@@ -40,5 +63,6 @@
 - **一键卸载脚本**: 支持清理程序文件、配置、Ollama
 - **部署文档**: 包含源码编译、systemd 服务、Docker 部署方式
 
+[0.3.0]: https://github.com/fanwenzhu/kylin-doctor/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/fanwenzhu/kylin-doctor/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/fanwenzhu/kylin-doctor/releases/tag/v0.1.0

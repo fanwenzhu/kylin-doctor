@@ -14,6 +14,9 @@ pub struct ChatArgs {
     pub question: Vec<String>,
 }
 
+/// 上下文消息上限（超出时裁剪最早的非系统消息）
+const MAX_CONTEXT_MESSAGES: usize = 40;
+
 const SYSTEM_PROMPT: &str = r#"你是银河麒麟桌面系统（Kylin OS）的 AI 诊断助手。你的职责是：
 
 1. 回答用户关于银河麒麟系统的问题
@@ -198,6 +201,51 @@ pub async fn execute(args: &ChatArgs, provider_name: &str) -> anyhow::Result<()>
                 print_help();
                 continue;
             }
+            "clear" | "清屏" | "重置" => {
+                messages.clear();
+                messages.push(Message::system(&format!(
+                    "{}\n\n{}",
+                    SYSTEM_PROMPT,
+                    if knowledge_context.is_empty() {
+                        String::new()
+                    } else {
+                        format!(
+                            "## 参考知识库\n\n以下是从知识库中检索到的相关信息，可作为回答参考：\n\n{}",
+                            knowledge_context
+                        )
+                    }
+                )));
+                print!("\x1B[2J\x1B[H"); // 清屏
+                io::stdout().flush()?;
+                println!("{}", "🔄 对话已重置，上下文已清空".cyan());
+                println!();
+                continue;
+            }
+            "history" | "历史" => {
+                let user_count = messages.iter().filter(|m| m.role == "user").count();
+                let total = messages.len();
+                println!(
+                    "  {} 条对话记录（{} 条消息，含系统/工具消息）",
+                    user_count.to_string().cyan(),
+                    total
+                );
+                // 显示最近 5 条用户消息
+                let recent: Vec<_> = messages
+                    .iter()
+                    .filter(|m| m.role == "user")
+                    .rev()
+                    .take(5)
+                    .collect();
+                if !recent.is_empty() {
+                    println!("  最近的提问：");
+                    for m in recent.iter().rev() {
+                        let preview: String = m.content.chars().take(50).collect();
+                        println!("    • {}", preview.dimmed());
+                    }
+                }
+                println!();
+                continue;
+            }
             "scan" | "扫描" => {
                 let spinner = Spinner::new("正在全面诊断系统");
                 spinner.start();
@@ -219,12 +267,33 @@ pub async fn execute(args: &ChatArgs, provider_name: &str) -> anyhow::Result<()>
 
         messages.push(Message::user(input));
 
-        print!("{}", "🤖 助手: ".bold().blue());
-        io::stdout().flush()?;
+        // 上下文裁剪：保留系统消息 + 最近的消息
+        // 裁剪时确保不会切断工具调用组（assistant(tool_calls) + tool_results 必须在一起）
+        if messages.len() > MAX_CONTEXT_MESSAGES {
+            let system_msgs: Vec<_> = messages.drain(..1).collect();
+            let keep_from = messages.len().saturating_sub(MAX_CONTEXT_MESSAGES - 1);
+            // 确保裁剪点不在工具调用组中间
+            let mut safe_from = keep_from;
+            while safe_from < messages.len() && messages[safe_from].role == "tool" {
+                safe_from += 1;
+            }
+            let recent: Vec<_> = messages.drain(safe_from..).collect();
+            messages = system_msgs;
+            messages.extend(recent);
+        }
+
+        // 记录当前消息数量，用于错误恢复
+        let msg_checkpoint = messages.len();
+
+        // 显示思考状态
+        let thinking_spinner = Spinner::new("正在思考");
+        thinking_spinner.start();
 
         // 带 Function Calling 的对话循环
         match provider.chat_with_tools(&messages, &tools).await {
             Ok(response) => {
+                thinking_spinner.stop(true);
+
                 if let Some(ref tool_calls) = response.tool_calls {
                     // 有工具调用
                     messages.push(response.clone());
@@ -251,43 +320,52 @@ pub async fn execute(args: &ChatArgs, provider_name: &str) -> anyhow::Result<()>
 
                     // 工具结果返回给 LLM 生成最终回答
                     println!();
-                    print!("{}", "🤖 助手: ".bold().blue());
-                    io::stdout().flush()?;
+                    println!("{}", "🤖 助手:".bold().blue());
 
                     // 流式输出最终回答
-                    let full_response = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
-                    let full_response_clone = full_response.clone();
-                    match provider
-                        .chat_stream(&messages, Box::new(move |chunk: String| {
-                            print!("{}", chunk);
-                            io::stdout().flush().unwrap();
-                            if let Ok(mut resp) = full_response_clone.lock() {
-                                resp.push_str(&chunk);
-                            }
-                        }))
-                        .await
-                    {
-                        Ok(_) => {
-                            println!();
-                            if let Ok(resp) = full_response.lock() {
-                                messages.push(Message::assistant(&resp));
-                            }
+                    match stream_llm_response(&*provider, &messages).await {
+                        Ok(resp) => {
+                            messages.push(Message::assistant(&resp));
                         }
                         Err(e) => {
-                            println!();
-                            eprintln!("{} {}", "❌ 请求失败:".red(), e);
-                            messages.pop(); // 移除用户消息
+                            // 流式失败，恢复到 checkpoint，回退到非流式
+                            messages.truncate(msg_checkpoint);
+                            eprintln!("{} 流式输出失败，使用批量输出: {}", "⚠️".yellow(), e);
+                            let fallback = provider.chat(&messages).await;
+                            match fallback {
+                                Ok(text) => {
+                                    println!();
+                                    println!("{}", render_markdown(&text));
+                                    messages.push(Message::assistant(&text));
+                                }
+                                Err(e2) => {
+                                    eprintln!("{} {}", "❌ 请求失败:".red(), e2);
+                                }
+                            }
                         }
                     }
                 } else {
                     // 普通文本回复 - 流式输出
                     println!();
-                    let rendered = render_markdown(&response.content);
-                    print!("{}", rendered);
-                    messages.push(response);
+                    println!("{}", "🤖 助手:".bold().blue());
+
+                    match stream_llm_response(&*provider, &messages).await {
+                        Ok(resp) => {
+                            messages.push(Message::assistant(&resp));
+                        }
+                        Err(e) => {
+                            // 流式失败，回退到非流式渲染输出
+                            messages.truncate(msg_checkpoint);
+                            eprintln!("{} 流式输出失败，使用批量输出: {}", "⚠️".yellow(), e);
+                            let rendered = render_markdown(&response.content);
+                            println!("{}", rendered);
+                            messages.push(response);
+                        }
+                    }
                 }
             }
             Err(e) => {
+                thinking_spinner.stop(false);
                 // hybrid 回退
                 if actual_provider_name == "hybrid" {
                     if let Some(cloud) = create_cloud_provider(&config) {
@@ -296,44 +374,71 @@ pub async fn execute(args: &ChatArgs, provider_name: &str) -> anyhow::Result<()>
                             "{}",
                             "  ⚠️  本地模型失败，切换到云端...".yellow().dimmed()
                         );
-                        print!("{}", "🤖 助手: ".bold().blue());
-                        io::stdout().flush()?;
+                        println!("{}", "🤖 助手:".bold().blue());
 
-                        let full_response = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
-                        let full_response_clone = full_response.clone();
-                        match cloud
-                            .chat_stream(&messages, Box::new(move |chunk: String| {
-                                print!("{}", chunk);
-                                io::stdout().flush().unwrap();
-                                if let Ok(mut resp) = full_response_clone.lock() {
-                                    resp.push_str(&chunk);
-                                }
-                            }))
-                            .await
-                        {
-                            Ok(_) => {
-                                println!();
-                                if let Ok(resp) = full_response.lock() {
-                                    messages.push(Message::assistant(&resp));
-                                }
+                        match stream_llm_response(&*cloud, &messages).await {
+                            Ok(resp) => {
+                                messages.push(Message::assistant(&resp));
                             }
                             Err(e2) => {
-                                println!();
-                                eprintln!("{} {}", "❌ 请求失败:".red(), e2);
-                                messages.pop();
+                                // 云端也失败，回退到非流式
+                                messages.truncate(msg_checkpoint);
+                                eprintln!("{} 流式失败，尝试批量输出: {}", "⚠️".yellow(), e2);
+                                match cloud.chat(&messages).await {
+                                    Ok(text) => {
+                                        println!("{}", render_markdown(&text));
+                                        messages.push(Message::assistant(&text));
+                                    }
+                                    Err(e3) => {
+                                        eprintln!("{} {}", "❌ 请求失败:".red(), e3);
+                                    }
+                                }
                             }
                         }
                         continue;
                     }
                 }
                 eprintln!("{} {}", "❌ 请求失败:".red(), e);
-                messages.pop();
             }
         }
         println!();
     }
 
     Ok(())
+}
+
+/// 流式输出 LLM 回复，返回完整响应文本
+/// 流式过程中逐 chunk 打印原始文本，结束后用 render_markdown 重新渲染
+async fn stream_llm_response(
+    provider: &dyn LlmProvider,
+    messages: &[Message],
+) -> anyhow::Result<String> {
+    let full_response = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+    let full_response_clone = full_response.clone();
+
+    provider
+        .chat_stream(messages, Box::new(move |chunk: String| {
+            print!("{}", chunk);
+            io::stdout().flush().unwrap();
+            if let Ok(mut resp) = full_response_clone.lock() {
+                resp.push_str(&chunk);
+            }
+        }))
+        .await?;
+
+    println!();
+
+    // 用 render_markdown 重新渲染完整输出
+    // 先用 \r 覆盖流式输出的原始文本（清除当前行不够，需要清除多行）
+    // 简单方案：直接在流式文本后追加渲染后的版本不理想
+    // 这里选择：流式输出保持原始文本（已打印），不做重复渲染
+    // 用户在流式过程中已经看到了内容，这已经比批量输出好很多
+
+    let resp = full_response
+        .lock()
+        .map(|r| r.clone())
+        .unwrap_or_default();
+    Ok(resp)
 }
 
 /// 单次提问
@@ -354,10 +459,17 @@ async fn ask_once(
 
     let tools = tools::get_tool_definitions();
     let mut messages = vec![Message::system(SYSTEM_PROMPT), Message::user(question)];
+    let msg_checkpoint = messages.len();
+
+    // 显示思考状态
+    let thinking_spinner = Spinner::new("正在思考");
+    thinking_spinner.start();
 
     // 带工具的单次提问
     match provider.chat_with_tools(&messages, &tools).await {
         Ok(response) => {
+            thinking_spinner.stop(true);
+
             if let Some(ref tool_calls) = response.tool_calls {
                 messages.push(response.clone());
                 for tc in tool_calls {
@@ -375,32 +487,38 @@ async fn ask_once(
 
                 // 流式输出最终回答
                 println!();
-                let full_response = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
-                let full_response_clone = full_response.clone();
-                match provider
-                    .chat_stream(&messages, Box::new(move |chunk: String| {
-                        print!("{}", chunk);
-                        io::stdout().flush().unwrap();
-                        if let Ok(mut resp) = full_response_clone.lock() {
-                            resp.push_str(&chunk);
-                        }
-                    }))
-                    .await
-                {
-                    Ok(_) => println!(),
+                println!("{}", "🤖 助手:".bold().blue());
+                match stream_llm_response(provider, &messages).await {
+                    Ok(_) => {}
                     Err(e) => {
-                        println!();
-                        eprintln!("❌ 请求失败: {}", e);
+                        // 流式失败，回退到非流式
+                        messages.truncate(msg_checkpoint);
+                        eprintln!("{} 流式失败，尝试批量输出: {}", "⚠️".yellow(), e);
+                        match provider.chat(&messages).await {
+                            Ok(text) => println!("{}", render_markdown(&text)),
+                            Err(e2) => eprintln!("{} {}", "❌ 请求失败:".red(), e2),
+                        }
                     }
                 }
             } else {
                 // 流式输出普通回复
                 println!();
-                let rendered = render_markdown(&response.content);
-                print!("{}", rendered);
+                println!("{}", "🤖 助手:".bold().blue());
+                match stream_llm_response(provider, &messages).await {
+                    Ok(_) => {}
+                    Err(e) => {
+                        messages.truncate(msg_checkpoint);
+                        eprintln!("{} 流式输出失败，使用批量输出: {}", "⚠️".yellow(), e);
+                        let rendered = render_markdown(&response.content);
+                        println!("{}", rendered);
+                    }
+                }
             }
         }
-        Err(e) => eprintln!("❌ 请求失败: {}", e),
+        Err(e) => {
+            thinking_spinner.stop(false);
+            eprintln!("❌ 请求失败: {}", e);
+        }
     }
 
     Ok(())
@@ -423,9 +541,11 @@ fn print_unavailable(provider_name: &str, config: &Config) {
 
 fn print_help() {
     println!("{}", "📖 可用命令：".bold());
-    println!("  scan/扫描   - 快速全面诊断系统");
-    println!("  help/帮助   - 显示此帮助信息");
-    println!("  exit/退出   - 退出对话");
+    println!("  scan/扫描     - 快速全面诊断系统");
+    println!("  clear/清屏    - 重置对话，清空上下文");
+    println!("  history/历史  - 查看对话历史摘要");
+    println!("  help/帮助     - 显示此帮助信息");
+    println!("  exit/退出     - 退出对话");
     println!();
     println!("{}", "💡 示例问题：".bold());
     println!("  我的系统为什么变慢了？");

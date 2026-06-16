@@ -7,8 +7,8 @@ members = [
 resolver = "2"
 
 [workspace.package]
-version = "0.2.0"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
-repository = "https://github.com/your-org/kylin-doctor"
+repository = "https://github.com/fanwenzhu/kylin-doctor"
 description = "银河麒麟桌面系统自我诊断工具"

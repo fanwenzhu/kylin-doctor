@@ -63,6 +63,32 @@ footer{text-align:center;padding:20px;color:var(--muted);font-size:12px}
 .chat-toggle{position:fixed;bottom:20px;right:20px;width:50px;height:50px;background:var(--cyan);color:#000;border:none;border-radius:50%;cursor:pointer;font-size:20px;z-index:999;box-shadow:0 2px 10px rgba(6,182,212,.3)}
 .chat-toggle:hover{opacity:.9}
 .chat-panel.hidden{display:none}
+/* Markdown 渲染样式 */
+.chat-msg.assistant h1,.chat-msg.assistant h2,.chat-msg.assistant h3{margin:8px 0 4px;color:var(--cyan);font-weight:600}
+.chat-msg.assistant h1{font-size:15px}.chat-msg.assistant h2{font-size:14px}.chat-msg.assistant h3{font-size:13px}
+.chat-msg.assistant code{background:rgba(0,0,0,.3);padding:1px 4px;border-radius:3px;font-size:12px;font-family:"Cascadia Code","Fira Code",monospace}
+.chat-msg.assistant pre{background:rgba(0,0,0,.35);padding:8px 10px;border-radius:6px;margin:6px 0;overflow-x:auto;font-size:12px;line-height:1.5}
+.chat-msg.assistant pre code{background:none;padding:0;font-size:12px}
+.chat-msg.assistant ul,.chat-msg.assistant ol{padding-left:18px;margin:4px 0}
+.chat-msg.assistant li{margin:2px 0;line-height:1.5}
+.chat-msg.assistant a{color:var(--cyan);text-decoration:underline;word-break:break-all}
+.chat-msg.assistant blockquote{border-left:3px solid var(--cyan);padding-left:10px;margin:6px 0;color:var(--muted);font-style:italic}
+.chat-msg.assistant strong{color:#fff;font-weight:600}
+.chat-msg.assistant em{font-style:italic;color:var(--muted)}
+.chat-msg.assistant hr{border:none;border-top:1px solid var(--border);margin:8px 0}
+.chat-msg.assistant table{border-collapse:collapse;margin:6px 0;width:100%;font-size:12px}
+.chat-msg.assistant th,.chat-msg.assistant td{border:1px solid var(--border);padding:4px 8px;text-align:left}
+.chat-msg.assistant th{background:rgba(0,0,0,.2);font-weight:600}
+.chat-msg.assistant p{margin:4px 0;line-height:1.5}
+/* 打字光标 */
+.typing-cursor{animation:blink .6s infinite;color:var(--cyan);font-weight:bold}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+/* 工具调用 */
+.chat-msg.tool-call{background:rgba(234,179,8,.1);color:var(--yellow);font-size:12px;display:flex;align-items:center;gap:6px}
+.chat-msg.tool-call .spinner{width:12px;height:12px;border-width:1.5px;border-color:var(--border);border-top-color:var(--yellow)}
+.tool-result-header{cursor:pointer;display:flex;align-items:center;gap:4px;font-weight:600;margin-bottom:4px}
+.tool-result-header:hover{color:#fff}
+.toggle-hint{font-size:11px;opacity:.7}
 /* Report buttons */
 .report-actions{display:flex;gap:8px;margin-left:auto}
 </style>
@@ -334,6 +360,9 @@ function exportJSON() { window.open('/api/report/json','_blank'); }
 function exportHTML() { window.open('/api/report/html','_blank'); }
 
 // ==================== Chat ====================
+let streamingDiv = null;
+let streamingContent = '';
+
 function toggleChat() {
   const panel = document.getElementById('chatPanel');
   panel.classList.toggle('hidden');
@@ -357,11 +386,32 @@ function connectChat() {
       case 'message':
         addChatMsg(msg.role, msg.content);
         break;
+      case 'stream_start':
+        streamingDiv = addChatMsg('assistant', '');
+        streamingContent = '';
+        streamingDiv.innerHTML = '<span class="typing-cursor">▊</span>';
+        break;
+      case 'stream_chunk':
+        if (streamingDiv) {
+          streamingContent += msg.content;
+          streamingDiv.innerHTML = renderMd(streamingContent) + '<span class="typing-cursor">▊</span>';
+          const container = document.getElementById('chatMessages');
+          container.scrollTop = container.scrollHeight;
+        }
+        break;
+      case 'stream_end':
+        if (streamingDiv) {
+          streamingDiv.innerHTML = renderMd(streamingContent);
+          streamingDiv = null;
+          streamingContent = '';
+        }
+        break;
       case 'tool_call':
-        addChatMsg('tool', `🔧 正在调用: ${msg.name}...`);
+        const toolDiv = addChatMsg('tool-call', '');
+        toolDiv.innerHTML = `<span class="spinner"></span> 正在执行: ${esc(msg.name)}...`;
         break;
       case 'tool_result':
-        addChatMsg('tool', msg.content);
+        showToolResult(msg.content);
         break;
       case 'error':
         addChatMsg('tool', `❌ ${msg.message}`);
@@ -385,9 +435,126 @@ function addChatMsg(role, content) {
   const container = document.getElementById('chatMessages');
   const div = document.createElement('div');
   div.className = `chat-msg ${role}`;
-  div.textContent = content;
+  if (role === 'user') {
+    div.textContent = content;
+  } else if (role === 'assistant') {
+    div.innerHTML = content ? renderMd(content) : '';
+  } else {
+    div.textContent = content;
+  }
   container.appendChild(div);
   container.scrollTop = container.scrollHeight;
+  return div;
+}
+
+function showToolResult(content) {
+  const container = document.getElementById('chatMessages');
+  const div = document.createElement('div');
+  div.className = 'chat-msg tool';
+  const truncated = content.length > 300;
+  const preview = truncated ? content.slice(0, 300) + '...' : content;
+  const previewHtml = esc(preview);
+  div.innerHTML = `<div class="tool-result-header">📋 扫描结果 <span class="toggle-hint">${truncated ? '▶ 点击展开' : ''}</span></div>
+    <div class="tool-result-body" style="white-space:pre-wrap;max-height:200px;overflow-y:auto">${previewHtml}</div>`;
+  if (truncated) {
+    const header = div.querySelector('.tool-result-header');
+    const body = div.querySelector('.tool-result-body');
+    let expanded = false;
+    header.onclick = () => {
+      expanded = !expanded;
+      body.textContent = expanded ? content : preview;
+      body.style.maxHeight = expanded ? '400px' : '200px';
+      header.querySelector('.toggle-hint').textContent = expanded ? '▼ 点击折叠' : '▶ 点击展开';
+    };
+    header.style.cursor = 'pointer';
+  }
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+// ==================== Markdown Parser ====================
+function renderMd(text) {
+  if (!text) return '';
+  // 先转义 HTML
+  let html = esc(text);
+
+  // 代码块 ```lang\n...\n```
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+    const cls = lang ? ` class="lang-${esc(lang)}"` : '';
+    return `<pre><code${cls}>${code}</code></pre>`;
+  });
+
+  // 行内代码 `code`
+  html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+
+  // 标题 # ## ###
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+
+  // 粗体 **text**
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+
+  // 斜体 *text*
+  html = html.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+
+  // 链接 [text](url)
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+  // 引用 > text
+  html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+
+  // 列表处理：逐行分组，连续同类型列表项包裹在同一容器中
+  html = html.split('\n').reduce((acc, line) => {
+    const prevType = acc._listType;
+    let curType = null;
+    let content = line;
+
+    if (/^\d+\. (.+)$/.test(line)) {
+      curType = 'ol';
+      content = line.replace(/^\d+\. (.+)$/, '<li>$1</li>');
+    } else if (/^[\-\*] (.+)$/.test(line)) {
+      curType = 'ul';
+      content = line.replace(/^[\-\*] (.+)$/, '<li>$1</li>');
+    }
+
+    if (curType && curType === prevType) {
+      acc._lines[acc._lines.length - 1] += '\n' + content;
+    } else if (curType) {
+      if (prevType) acc._lines[acc._lines.length - 1] += `</${prevType}>`;
+      acc._lines.push(`<${curType}>` + content);
+      acc._listType = curType;
+    } else if (prevType) {
+      acc._lines[acc._lines.length - 1] += `</${prevType}>`;
+      acc._lines.push(line);
+      acc._listType = null;
+    } else {
+      acc._lines.push(line);
+    }
+    return acc;
+  }, { _lines: [], _listType: null });
+  if (html._listType) html._lines[html._lines.length - 1] += `</${html._listType}>`;
+  html = html._lines.join('\n');
+
+  // 分隔线 ---
+  html = html.replace(/^---$/gm, '<hr>');
+
+  // 表格（简单支持）
+  html = html.replace(/^(\|.+\|)\n(\|[\-\|: ]+\|)\n((?:\|.+\|\n?)+)/gm, (_, header, sep, body) => {
+    const ths = header.split('|').filter(c => c.trim()).map(c => `<th>${c.trim()}</th>`).join('');
+    const rows = body.trim().split('\n').map(row => {
+      const tds = row.split('|').filter(c => c.trim()).map(c => `<td>${c.trim()}</td>`).join('');
+      return `<tr>${tds}</tr>`;
+    }).join('');
+    return `<table><thead><tr>${ths}</tr></thead><tbody>${rows}</tbody></table>`;
+  });
+
+  // 换行：连续两个换行变段落
+  html = html.replace(/\n\n+/g, '</p><p>');
+  // 单个换行变 <br>（但不在 pre 标签内）
+  html = html.replace(/(?<!<\/pre>)\n(?!<)/g, '<br>');
+
+  return html;
 }
 </script>
 </body>

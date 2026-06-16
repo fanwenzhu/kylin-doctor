@@ -2,7 +2,7 @@ use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::Path;
 use axum::http::StatusCode;
 use axum::response::{Html, Json};
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use kylin_doctor_core::{
     llm::tools, Config, Detector, HardwareDetector, LlmProvider, Message as LlmMessage,
     OllamaProvider, PerformanceDetector, ScanReport, SecurityDetector, SoftwareDetector,
@@ -303,13 +303,15 @@ pub async fn ws_chat_handler(ws: WebSocketUpgrade) -> axum::response::Response {
     ws.on_upgrade(handle_ws_chat)
 }
 
-async fn handle_ws_chat(mut socket: WebSocket) {
+async fn handle_ws_chat(socket: WebSocket) {
+    let (mut sender, mut receiver) = socket.split();
+
     let config = Config::load();
     let provider = OllamaProvider::new(&config.llm.local.endpoint, &config.llm.local.model);
 
     // 检查可用性
     if !provider.is_available().await {
-        let _ = socket
+        let _ = sender
             .send(WsMessage::Text(
                 json!({"type":"error","message":"LLM 服务不可用，请启动 Ollama"})
                     .to_string()
@@ -322,13 +324,13 @@ async fn handle_ws_chat(mut socket: WebSocket) {
     let system_prompt = "你是银河麒麟桌面系统的 AI 诊断助手。简洁回答用户问题，优先给出可执行的命令。";
     let mut messages: Vec<LlmMessage> = vec![LlmMessage::system(system_prompt)];
 
-    let _ = socket
+    let _ = sender
         .send(WsMessage::Text(
             json!({"type":"ready","model":provider.name()}).to_string().into(),
         ))
         .await;
 
-    while let Some(Ok(msg)) = socket.next().await {
+    while let Some(Ok(msg)) = receiver.next().await {
         match msg {
             WsMessage::Text(text) => {
                 let user_input = text.to_string();
@@ -337,7 +339,7 @@ async fn handle_ws_chat(mut socket: WebSocket) {
                 if user_input == "/scan" || user_input == "/扫描" {
                     match tools::execute_tool("scan_all") {
                         Ok(result) => {
-                            let _ = socket
+                            let _ = sender
                                 .send(WsMessage::Text(
                                     json!({"type":"tool_result","content":result})
                                         .to_string()
@@ -346,7 +348,7 @@ async fn handle_ws_chat(mut socket: WebSocket) {
                                 .await;
                         }
                         Err(e) => {
-                            let _ = socket
+                            let _ = sender
                                 .send(WsMessage::Text(
                                     json!({"type":"error","message":e.to_string()})
                                         .to_string()
@@ -367,7 +369,7 @@ async fn handle_ws_chat(mut socket: WebSocket) {
                         if let Some(ref tool_calls) = response.tool_calls {
                             messages.push(response.clone());
                             for tc in tool_calls {
-                                let _ = socket
+                                let _ = sender
                                     .send(WsMessage::Text(
                                         json!({"type":"tool_call","name":tc.function.name})
                                             .to_string()
@@ -388,20 +390,15 @@ async fn handle_ws_chat(mut socket: WebSocket) {
                                     }
                                 }
                             }
-                            // 让 LLM 生成最终回答
-                            match provider.chat(&messages).await {
+                            // 让 LLM 流式生成最终回答
+                            let (result, returned_sender) = stream_to_socket(&provider, &messages, sender).await;
+                            sender = returned_sender;
+                            match result {
                                 Ok(final_response) => {
                                     messages.push(LlmMessage::assistant(&final_response));
-                                    let _ = socket
-                                        .send(WsMessage::Text(
-                                            json!({"type":"message","role":"assistant","content":final_response})
-                                                .to_string()
-                                                .into(),
-                                        ))
-                                        .await;
                                 }
                                 Err(e) => {
-                                    let _ = socket
+                                    let _ = sender
                                         .send(WsMessage::Text(
                                             json!({"type":"error","message":e.to_string()})
                                                 .to_string()
@@ -411,18 +408,30 @@ async fn handle_ws_chat(mut socket: WebSocket) {
                                 }
                             }
                         } else {
-                            messages.push(LlmMessage::assistant(&response.content));
-                            let _ = socket
-                                .send(WsMessage::Text(
-                                    json!({"type":"message","role":"assistant","content":response.content})
-                                        .to_string()
-                                        .into(),
-                                ))
-                                .await;
+                            // 无工具调用，用 chat_stream 流式输出
+                            let (result, returned_sender) = stream_to_socket(&provider, &messages, sender).await;
+                            sender = returned_sender;
+                            match result {
+                                Ok(text) => {
+                                    messages.push(LlmMessage::assistant(&text));
+                                }
+                                Err(e) => {
+                                    // 流式失败，回退到非流式
+                                    eprintln!("流式输出失败，回退到批量输出: {}", e);
+                                    messages.push(LlmMessage::assistant(&response.content));
+                                    let _ = sender
+                                        .send(WsMessage::Text(
+                                            json!({"type":"message","role":"assistant","content":response.content})
+                                                .to_string()
+                                                .into(),
+                                        ))
+                                        .await;
+                                }
+                            }
                         }
                     }
                     Err(e) => {
-                        let _ = socket
+                        let _ = sender
                             .send(WsMessage::Text(
                                 json!({"type":"error","message":e.to_string()})
                                     .to_string()
@@ -439,6 +448,75 @@ async fn handle_ws_chat(mut socket: WebSocket) {
 }
 
 // ==================== 辅助函数 ====================
+
+/// 流式发送 LLM 回复到 WebSocket
+/// 使用 std::sync::mpsc 桥接 chat_stream 的同步回调和异步 WebSocket 发送
+/// sender 通过 channel 转移给 drain_task，函数结束后归还
+async fn stream_to_socket(
+    provider: &OllamaProvider,
+    messages: &[LlmMessage],
+    sender: futures_util::stream::SplitSink<WebSocket, WsMessage>,
+) -> (anyhow::Result<String>, futures_util::stream::SplitSink<WebSocket, WsMessage>) {
+    // 使用 tokio mpsc 传递所有需要发送的 WebSocket 消息
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(32);
+
+    // drain_task 拥有 sender，负责所有 WebSocket 发送
+    let mut sender = sender;
+    let drain_task = tokio::spawn(async move {
+        // 发送 stream_start
+        let _ = sender
+            .send(WsMessage::Text(
+                json!({"type":"stream_start"}).to_string().into(),
+            ))
+            .await;
+
+        // 持续发送 stream_chunk，直到 channel 关闭
+        while let Some(chunk) = rx.recv().await {
+            let msg = json!({"type":"stream_chunk","content":chunk}).to_string();
+            if sender
+                .send(WsMessage::Text(msg.into()))
+                .await
+                .is_err()
+            {
+                return sender;
+            }
+        }
+
+        // 发送 stream_end
+        let _ = sender
+            .send(WsMessage::Text(
+                json!({"type":"stream_end"}).to_string().into(),
+            ))
+            .await;
+
+        sender
+    });
+
+    // chat_stream 的同步回调通过 std::sync::mpsc 发送给 tokio task
+    let (sync_tx, sync_rx) = std::sync::mpsc::channel::<String>();
+    // 桥接：std::sync::mpsc -> tokio::sync::mpsc
+    let bridge_tx = tx.clone();
+    let bridge_task = tokio::spawn(async move {
+        while let Ok(chunk) = sync_rx.recv() {
+            if bridge_tx.send(chunk).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    let full = provider
+        .chat_stream(messages, Box::new(move |chunk| {
+            let _ = sync_tx.send(chunk);
+        }))
+        .await;
+
+    // 清理：关闭 bridge，等待 drain 完成
+    drop(tx); // 关闭 tokio channel
+    let _ = bridge_task.await;
+    let sender = drain_task.await.unwrap();
+
+    (full, sender)
+}
 
 fn run_detectors(detectors: &[Box<dyn Detector>]) -> Vec<Value> {
     detectors.iter().map(|d| run_single(&**d)).collect()
