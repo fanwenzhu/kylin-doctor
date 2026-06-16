@@ -15,7 +15,12 @@
 ### 一键安装
 
 ```bash
-# 基础安装（编译 + 安装到 /usr/local/bin）
+# deb 安装（推荐，无需编译）
+# 下载: https://github.com/fanwenzhu/kylin-doctor/releases/tag/v0.3.0
+sudo dpkg -i kylin-doctor_0.3.0_amd64.deb   # x86_64
+sudo dpkg -i kylin-doctor_0.3.0_arm64.deb   # arm64
+
+# 或用安装脚本（编译 + 安装到 /usr/local/bin）
 curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/install.sh | sudo bash
 
 # 安装并自动配置 AI 模型（Ollama + qwen2.5:3b）

@@ -16,7 +16,8 @@ cargo build --release          # 发布构建
 cargo test                     # 运行全部测试（当前 56 个）
 cargo test -p kylin-doctor-core # 只运行核心库测试
 cargo check                    # 检查编译警告
-./build-deb.sh                 # 构建 deb 安装包（输出到 dist/）
+./build-deb.sh                 # 构建当前架构 deb 包（输出到 dist/）
+./build-deb.sh --arch arm64    # 交叉编译 arm64 deb 包
 ```
 
 ## 版本管理（强制）

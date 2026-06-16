@@ -8,7 +8,8 @@
 ## [0.3.0] - 2026-06-15
 
 ### 新增 (Added)
-- **deb 安装包支持**: 新增 `build-deb.sh` 一键打包脚本，支持 amd64/arm64 架构
+- **deb 安装包支持**: 新增 `build-deb.sh` 一键打包脚本，支持 amd64/arm64 架构及交叉编译
+- **GitHub Release**: v0.3.0 发布 amd64/arm64 两个 deb 包，客户可直接下载安装
 - **Anthropic Claude 支持**: 新增 `AnthropicProvider`，支持 Anthropic Messages API 原生协议（流式输出 + Function Calling）
 - **Web 端流式输出**: WebSocket 支持 `stream_start`/`stream_chunk`/`stream_end` 消息类型，AI 回复逐 token 实时显示
 - **Web 端 Markdown 渲染**: 内联 `renderMd()` 解析器，支持代码块、粗体、斜体、有序/无序列表、标题、链接、表格、引用
@@ -26,6 +27,7 @@
 - **Web 端非工具调用路径**: 从非流式改为流式输出（需两次 LLM 调用）
 
 ### 修复 (Fixed)
+- **deb 包依赖问题**: 移除 procps/coreutils 硬依赖，改为 Recommends（缺失不崩溃，自动跳过检测项）
 - **CLI 消息恢复错误**: 修复工具调用流式失败时 `messages.pop()` 删除错误消息的问题，改用 `messages.truncate(checkpoint)` 正确恢复
 - **CLI 上下文裁剪断裂**: 修复裁剪时可能切断工具调用组（assistant(tool_calls) + tool_results）的问题
 - **Web 端有序列表渲染**: 修复有序列表被错误包裹在 `<ul>` 中的 bug，采用逐行分组算法分离处理
