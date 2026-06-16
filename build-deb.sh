@@ -131,8 +131,7 @@ Version: $VERSION
 Architecture: $ARCH
 Maintainer: fanwenzhu <fanwenzhu@github.com>
 Installed-Size: $(du -sk "$BUILD_DIR" | cut -f1)
-Depends: procps, coreutils
-Recommends: pciutils, usbutils, smartmontools, dmidecode, lm-sensors, iproute2, iputils-ping, fontconfig
+Recommends: procps, coreutils, pciutils, usbutils, smartmontools, dmidecode, lm-sensors, iproute2, iputils-ping, fontconfig
 Section: utils
 Priority: optional
 Homepage: https://github.com/fanwenzhu/kylin-doctor
