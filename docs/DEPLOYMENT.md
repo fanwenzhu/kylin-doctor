@@ -508,6 +508,25 @@ api_key_env = "YOUR_API_KEY_ENV"
 endpoint = "https://your-api-endpoint/v1"
 ```
 
+#### Anthropic（Claude）
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-your-api-key"
+```
+
+```toml
+[llm]
+strategy = "cloud"
+
+[llm.cloud]
+provider = "anthropic"
+model = "claude-sonnet-4-20250514"
+api_key_env = "ANTHROPIC_API_KEY"
+endpoint = "https://api.anthropic.com"
+```
+
+> 💡 Anthropic 使用原生 Messages API（非 OpenAI 兼容），支持流式输出和 Function Calling。
+
 ### 混合模式
 
 混合模式优先使用本地模型，本地不可用时自动回退到云端：

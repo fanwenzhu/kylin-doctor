@@ -1,7 +1,8 @@
 use clap::Args;
 use colored::Colorize;
 use kylin_doctor_core::{
-    llm::tools, Config, KnowledgeStore, LlmProvider, Message, OllamaProvider, OpenAiCompatProvider,
+    llm::tools, AnthropicProvider, Config, KnowledgeStore, LlmProvider, Message, OllamaProvider,
+    OpenAiCompatProvider,
 };
 use std::io::{self, BufRead, Write};
 use crate::spinner::Spinner;
@@ -50,18 +51,14 @@ fn create_provider(config: &Config, provider_override: &str) -> Box<dyn LlmProvi
     match provider_override {
         "cloud" => {
             let cloud = &config.llm.cloud;
-            match OpenAiCompatProvider::from_env(&cloud.endpoint, &cloud.model, &cloud.api_key_env)
-            {
-                Ok(p) => Box::new(p),
-                Err(e) => {
-                    eprintln!("⚠️  云端模型初始化失败: {}", e);
-                    eprintln!("   回退到本地模型...");
-                    Box::new(OllamaProvider::new(
-                        &config.llm.local.endpoint,
-                        &config.llm.local.model,
-                    ))
-                }
-            }
+            create_cloud_provider_inner(cloud).unwrap_or_else(|e| {
+                eprintln!("⚠️  云端模型初始化失败: {}", e);
+                eprintln!("   回退到本地模型...");
+                Box::new(OllamaProvider::new(
+                    &config.llm.local.endpoint,
+                    &config.llm.local.model,
+                ))
+            })
         }
         "hybrid" => {
             // hybrid 模式：优先本地，不可用时回退云端
@@ -77,12 +74,26 @@ fn create_provider(config: &Config, provider_override: &str) -> Box<dyn LlmProvi
     }
 }
 
+/// 根据配置创建云端提供商
+fn create_cloud_provider_inner(
+    cloud: &kylin_doctor_core::config::CloudLlmConfig,
+) -> anyhow::Result<Box<dyn LlmProvider>> {
+    match cloud.provider.as_str() {
+        "anthropic" => {
+            let p = AnthropicProvider::from_env(&cloud.endpoint, &cloud.model, &cloud.api_key_env)?;
+            Ok(Box::new(p))
+        }
+        _ => {
+            let p = OpenAiCompatProvider::from_env(&cloud.endpoint, &cloud.model, &cloud.api_key_env)?;
+            Ok(Box::new(p))
+        }
+    }
+}
+
 /// 创建云端提供商（用于 hybrid 回退）
 fn create_cloud_provider(config: &Config) -> Option<Box<dyn LlmProvider>> {
     let cloud = &config.llm.cloud;
-    OpenAiCompatProvider::from_env(&cloud.endpoint, &cloud.model, &cloud.api_key_env)
-        .ok()
-        .map(|p| Box::new(p) as Box<dyn LlmProvider>)
+    create_cloud_provider_inner(cloud).ok()
 }
 
 /// 执行 chat 命令

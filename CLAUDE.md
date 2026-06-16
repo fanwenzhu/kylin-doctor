@@ -43,6 +43,13 @@ cargo check                    # 检查编译警告
 
 **限制**：`chat_stream` 不支持 tool calls，需要两次 LLM 调用。
 
+**Provider 实现**：
+| Provider | 协议 | 流式 | 工具调用 |
+|----------|------|------|----------|
+| `OllamaProvider` | Ollama 本地 API | ✅ | ✅ |
+| `OpenAiCompatProvider` | OpenAI 兼容 `/chat/completions` | ❌（回退批量） | ❌ |
+| `AnthropicProvider` | Anthropic Messages API `/v1/messages` | ✅ | ✅ |
+
 ## 关键文件速查
 
 | 文件 | 职责 |

@@ -63,10 +63,10 @@ pub struct LocalLlmConfig {
     pub model: String,
 }
 
-/// 云端 LLM 配置（OpenAI 兼容）
+/// 云端 LLM 配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloudLlmConfig {
-    /// 供应商: qwen / deepseek / moonshot / custom
+    /// 供应商: qwen / deepseek / moonshot / anthropic / custom
     #[serde(default = "default_cloud_provider")]
     pub provider: String,
     #[serde(default)]

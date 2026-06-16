@@ -294,6 +294,120 @@ kylin-doctor -p cloud chat
 kylin-doctor -p hybrid chat
 ```
 
+**AI 模型配置（`~/.kylin-doctor/config.toml`）：**
+
+配置文件路径：`~/.kylin-doctor/config.toml`，首次运行时自动创建。以下为完整配置示例：
+
+#### 本地模型（Ollama）
+
+```toml
+[llm]
+strategy = "local"       # local / cloud / hybrid
+
+[llm.local]
+endpoint = "http://localhost:11434"   # Ollama 服务地址
+model = "qwen2.5:3b"                 # 推荐：平衡速度和质量
+# model = "qwen2.5:1.5b"            # 更轻量，内存紧张时选用
+# model = "qwen2.5:7b"              # 高质量，需 16GB+ 内存
+```
+
+#### 云端模型 — OpenAI 兼容协议
+
+适用于 Qwen（通义千问）、DeepSeek、Moonshot（月之暗面）等兼容 OpenAI `/chat/completions` 接口的供应商。
+
+```toml
+[llm]
+strategy = "cloud"
+
+[llm.cloud]
+provider = "qwen"                                       # qwen / deepseek / moonshot / custom
+model = "qwen-plus"                                     # 模型名称
+api_key_env = "QWEN_API_KEY"                            # API Key 环境变量名
+endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+```
+
+```bash
+# 设置 API Key
+export QWEN_API_KEY="sk-your-api-key"
+```
+
+其他 OpenAI 兼容供应商配置：
+
+```toml
+# DeepSeek
+[llm.cloud]
+provider = "deepseek"
+model = "deepseek-chat"
+api_key_env = "DEEPSEEK_API_KEY"
+endpoint = "https://api.deepseek.com/v1"
+
+# Moonshot（月之暗面）
+[llm.cloud]
+provider = "moonshot"
+model = "moonshot-v1-8k"
+api_key_env = "MOONSHOT_API_KEY"
+endpoint = "https://api.moonshot.cn/v1"
+
+# 任意 OpenAI 兼容接口
+[llm.cloud]
+provider = "custom"
+model = "your-model-name"
+api_key_env = "YOUR_API_KEY_ENV"
+endpoint = "https://your-api-endpoint/v1"
+```
+
+#### 云端模型 — Anthropic 协议
+
+适用于 Anthropic Claude 系列模型，使用原生 Messages API（`/v1/messages`），支持流式输出和 Function Calling。
+
+```toml
+[llm]
+strategy = "cloud"
+
+[llm.cloud]
+provider = "anthropic"                         # 必须为 "anthropic"
+model = "claude-sonnet-4-20250514"             # Claude Sonnet 4
+# model = "claude-haiku-4-5-20251001"         # 更快更便宜
+# model = "claude-opus-4-8"                   # 最强能力
+api_key_env = "ANTHROPIC_API_KEY"              # API Key 环境变量名
+endpoint = "https://api.anthropic.com"         # Anthropic 官方端点
+```
+
+```bash
+# 设置 API Key
+export ANTHROPIC_API_KEY="sk-ant-your-api-key"
+```
+
+#### 混合模式
+
+本地优先，本地不可用时自动回退到云端：
+
+```toml
+[llm]
+strategy = "hybrid"
+
+[llm.local]
+endpoint = "http://localhost:11434"
+model = "qwen2.5:3b"
+
+[llm.cloud]
+provider = "anthropic"                         # 或 "qwen" / "deepseek" 等
+model = "claude-sonnet-4-20250514"
+api_key_env = "ANTHROPIC_API_KEY"
+endpoint = "https://api.anthropic.com"
+```
+
+#### 协议对照表
+
+| 供应商 | 协议 | provider 值 | 流式输出 | Function Calling |
+|--------|------|-------------|----------|-----------------|
+| Ollama 本地 | Ollama API | — | ✅ | ✅ |
+| 通义千问 | OpenAI 兼容 | `qwen` | ❌ | ❌ |
+| DeepSeek | OpenAI 兼容 | `deepseek` | ❌ | ❌ |
+| 月之暗面 | OpenAI 兼容 | `moonshot` | ❌ | ❌ |
+| Anthropic Claude | Messages API | `anthropic` | ✅ | ✅ |
+| 自定义 | OpenAI 兼容 | `custom` | ❌ | ❌ |
+
 **交互模式命令：**
 
 | 命令 | 说明 |

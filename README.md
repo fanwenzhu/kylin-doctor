@@ -127,7 +127,7 @@ kylin-doctor/
 | Web 后端 | Axum |
 | Web 前端 | 单文件 HTML（内嵌 CSS/JS） |
 | 本地模型 | Ollama + Qwen2.5 |
-| 云端模型 | OpenAI 兼容 API（Qwen/DeepSeek/Moonshot） |
+| 云端模型 | OpenAI 兼容 API（Qwen/DeepSeek/Moonshot）+ Anthropic Claude |
 | 系统检测 | Shell 命令 + /proc |
 
 ## 路线图
