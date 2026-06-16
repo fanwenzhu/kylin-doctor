@@ -132,13 +132,9 @@ kylin-doctor/
 
 ## 路线图
 
-- [x] 第一阶段：项目骨架 + 系统检测模块 + CLI scan 命令
-- [x] 第二阶段：硬件检测模块 (hardware.rs)
-- [x] 第三阶段：软件生态模块 (software.rs)
-- [x] 第四阶段：安全审计模块 (security.rs)
-- [x] 第五阶段：性能分析模块 (performance.rs)
-- [x] 第六阶段：AI 集成 (Ollama + 云端模型)
-- [x] 第七阶段：Web 仪表盘
+- [x] v0.1.0 — 项目骨架 + 五大检测模块 + CLI/Web/AI 对话 + 知识库
+- [x] v0.2.0 — 安装脚本日志系统 + CLI 流式输出 + Spinner 动画
+- [x] v0.3.0 — CLI/Web 双端流式输出全覆盖 + Markdown 渲染 + 错误恢复
 
 ## 文档
 
