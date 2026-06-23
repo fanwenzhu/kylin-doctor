@@ -74,17 +74,18 @@ fn create_provider(config: &Config, provider_override: &str) -> Box<dyn LlmProvi
     }
 }
 
-/// 根据配置创建云端提供商
+/// 根据配置创建云端提供商（优先 config.toml 中的 api_key，回退环境变量）
 fn create_cloud_provider_inner(
     cloud: &kylin_doctor_core::config::CloudLlmConfig,
 ) -> anyhow::Result<Box<dyn LlmProvider>> {
+    let api_key = cloud.resolve_api_key()?;
     match cloud.provider.as_str() {
         "anthropic" => {
-            let p = AnthropicProvider::from_env(&cloud.endpoint, &cloud.model, &cloud.api_key_env)?;
+            let p = AnthropicProvider::new(&cloud.endpoint, &cloud.model, &api_key);
             Ok(Box::new(p))
         }
         _ => {
-            let p = OpenAiCompatProvider::from_env(&cloud.endpoint, &cloud.model, &cloud.api_key_env)?;
+            let p = OpenAiCompatProvider::new(&cloud.endpoint, &cloud.model, &api_key);
             Ok(Box::new(p))
         }
     }

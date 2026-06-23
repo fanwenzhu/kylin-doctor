@@ -18,13 +18,15 @@ model = "qwen2.5:3b"                # 本地模型名称
 [llm.cloud]
 provider = "qwen"        # 云端供应商: qwen / deepseek / moonshot / anthropic / custom
 model = "qwen-plus"      # 云端模型名称
-api_key_env = "QWEN_API_KEY"  # API Key 环境变量名
+api_key = ""             # 直接填写 API Key（优先使用，留空则读取 api_key_env 环境变量）
+api_key_env = "QWEN_API_KEY"  # 回退：从该环境变量读取 API Key
 endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 # Anthropic Claude 配置示例:
 # provider = "anthropic"
 # model = "claude-sonnet-4-20250514"
-# api_key_env = "ANTHROPIC_API_KEY"
+# api_key = "sk-ant-your-api-key"       # 直接写入 Key，不用设环境变量
+# api_key_env = "ANTHROPIC_API_KEY"     # 或通过环境变量
 # endpoint = "https://api.anthropic.com"
 
 [web]

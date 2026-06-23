@@ -5,6 +5,17 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.1] - 2026-06-23
+
+### 新增 (Added)
+- **配置文件直接写入 API Key**: `config.toml` 新增 `api_key` 字段，支持直接填写 API Key 而无需设置环境变量
+  - 优先级：`api_key`（配置文件）> `api_key_env`（环境变量），两者都为空时提示配置
+  - 适用于所有云端供应商（Qwen/DeepSeek/Moonshot/Anthropic/自定义）
+
+### 改进 (Changed)
+- **云端 Provider 创建逻辑**: `AnthropicProvider` 和 `OpenAiCompatProvider` 改为通过 `CloudLlmConfig::resolve_api_key()` 统一解析 API Key
+- **文档更新**: USAGE.md 和 config.toml.example 同步更新，示例改为推荐直接写入 `api_key` 方式
+
 ## [0.3.0] - 2026-06-15
 
 ### 新增 (Added)
@@ -67,6 +78,7 @@
 - **一键卸载脚本**: 支持清理程序文件、配置、Ollama
 - **部署文档**: 包含源码编译、systemd 服务、Docker 部署方式
 
+[0.3.1]: https://github.com/fanwenzhu/kylin-doctor/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/fanwenzhu/kylin-doctor/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/fanwenzhu/kylin-doctor/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/fanwenzhu/kylin-doctor/releases/tag/v0.1.0

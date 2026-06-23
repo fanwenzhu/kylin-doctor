@@ -315,6 +315,8 @@ model = "qwen2.5:3b"                 # 推荐：平衡速度和质量
 
 适用于 Qwen（通义千问）、DeepSeek、Moonshot（月之暗面）等兼容 OpenAI `/chat/completions` 接口的供应商。
 
+**方式一：直接写入 API Key（推荐）**
+
 ```toml
 [llm]
 strategy = "cloud"
@@ -322,14 +324,27 @@ strategy = "cloud"
 [llm.cloud]
 provider = "qwen"                                       # qwen / deepseek / moonshot / custom
 model = "qwen-plus"                                     # 模型名称
-api_key_env = "QWEN_API_KEY"                            # API Key 环境变量名
+api_key = "sk-your-api-key"                             # 直接填写 API Key
+endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+```
+
+**方式二：通过环境变量**
+
+```toml
+[llm.cloud]
+provider = "qwen"
+model = "qwen-plus"
+api_key = ""                                            # 留空则回退读取环境变量
+api_key_env = "QWEN_API_KEY"                            # 环境变量名
 endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 ```
 
 ```bash
-# 设置 API Key
+# 设置环境变量
 export QWEN_API_KEY="sk-your-api-key"
 ```
+
+> **优先级规则**：`api_key` 字段非空时直接使用；为空时回退读取 `api_key_env` 指定的环境变量。
 
 其他 OpenAI 兼容供应商配置：
 
@@ -338,21 +353,21 @@ export QWEN_API_KEY="sk-your-api-key"
 [llm.cloud]
 provider = "deepseek"
 model = "deepseek-chat"
-api_key_env = "DEEPSEEK_API_KEY"
+api_key = "sk-your-deepseek-key"
 endpoint = "https://api.deepseek.com/v1"
 
 # Moonshot（月之暗面）
 [llm.cloud]
 provider = "moonshot"
 model = "moonshot-v1-8k"
-api_key_env = "MOONSHOT_API_KEY"
+api_key = "sk-your-moonshot-key"
 endpoint = "https://api.moonshot.cn/v1"
 
 # 任意 OpenAI 兼容接口
 [llm.cloud]
 provider = "custom"
 model = "your-model-name"
-api_key_env = "YOUR_API_KEY_ENV"
+api_key = "your-api-key"
 endpoint = "https://your-api-endpoint/v1"
 ```
 
@@ -369,13 +384,9 @@ provider = "anthropic"                         # 必须为 "anthropic"
 model = "claude-sonnet-4-20250514"             # Claude Sonnet 4
 # model = "claude-haiku-4-5-20251001"         # 更快更便宜
 # model = "claude-opus-4-8"                   # 最强能力
-api_key_env = "ANTHROPIC_API_KEY"              # API Key 环境变量名
+api_key = "sk-ant-your-api-key"                # 直接填写 API Key（推荐）
+# api_key_env = "ANTHROPIC_API_KEY"           # 或通过环境变量
 endpoint = "https://api.anthropic.com"         # Anthropic 官方端点
-```
-
-```bash
-# 设置 API Key
-export ANTHROPIC_API_KEY="sk-ant-your-api-key"
 ```
 
 #### 混合模式
@@ -393,7 +404,7 @@ model = "qwen2.5:3b"
 [llm.cloud]
 provider = "anthropic"                         # 或 "qwen" / "deepseek" 等
 model = "claude-sonnet-4-20250514"
-api_key_env = "ANTHROPIC_API_KEY"
+api_key = "sk-ant-your-api-key"                # 直接填写，不用设环境变量
 endpoint = "https://api.anthropic.com"
 ```
 

@@ -71,11 +71,34 @@ pub struct CloudLlmConfig {
     pub provider: String,
     #[serde(default)]
     pub model: String,
-    /// API Key 环境变量名
+    /// 直接配置 API Key（优先级高于 api_key_env）
+    #[serde(default)]
+    pub api_key: String,
+    /// API Key 环境变量名（api_key 为空时回退读取环境变量）
     #[serde(default)]
     pub api_key_env: String,
     #[serde(default)]
     pub endpoint: String,
+}
+
+impl CloudLlmConfig {
+    /// 解析 API Key：优先使用 api_key 字段，回退到 api_key_env 环境变量
+    pub fn resolve_api_key(&self) -> anyhow::Result<String> {
+        if !self.api_key.is_empty() {
+            return Ok(self.api_key.clone());
+        }
+        if !self.api_key_env.is_empty() {
+            return std::env::var(&self.api_key_env).map_err(|_| {
+                anyhow::anyhow!(
+                    "API Key 未配置：请在 config.toml 中设置 api_key，或设置环境变量 {}",
+                    self.api_key_env
+                )
+            });
+        }
+        anyhow::bail!(
+            "API Key 未配置：请在 ~/.kylin-doctor/config.toml 的 [llm.cloud] 中设置 api_key"
+        )
+    }
 }
 
 /// Web 仪表盘配置
@@ -125,6 +148,7 @@ impl Default for CloudLlmConfig {
         Self {
             provider: default_cloud_provider(),
             model: "qwen-plus".to_string(),
+            api_key: String::new(),
             api_key_env: "QWEN_API_KEY".to_string(),
             endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1".to_string(),
         }
@@ -215,9 +239,10 @@ endpoint = "http://localhost:11434"
 model = "qwen2.5:3b"
 
 [llm.cloud]
-provider = "qwen"        # qwen / deepseek / moonshot / custom
+provider = "qwen"        # qwen / deepseek / moonshot / anthropic / custom
 model = "qwen-plus"
-api_key_env = "QWEN_API_KEY"
+api_key = ""             # 直接填写 API Key（优先使用，留空则读取 api_key_env 环境变量）
+api_key_env = "QWEN_API_KEY"  # 回退：从该环境变量读取 API Key
 endpoint = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
 [web]
@@ -323,5 +348,54 @@ port = 3000
         let config: Config = toml::from_str(Config::example_toml()).unwrap();
         assert_eq!(config.llm.local.endpoint, "http://localhost:11434");
         assert_eq!(config.web.port, 8080);
+    }
+
+    #[test]
+    fn resolve_api_key_from_config() {
+        let cloud = CloudLlmConfig {
+            api_key: "sk-test-key".to_string(),
+            api_key_env: "NONEXISTENT_ENV".to_string(),
+            ..CloudLlmConfig::default()
+        };
+        // api_key 非空时直接使用，不读环境变量
+        assert_eq!(cloud.resolve_api_key().unwrap(), "sk-test-key");
+    }
+
+    #[test]
+    fn resolve_api_key_from_env() {
+        std::env::set_var("TEST_KYLIN_DOCTOR_KEY", "sk-env-key");
+        let cloud = CloudLlmConfig {
+            api_key: String::new(),
+            api_key_env: "TEST_KYLIN_DOCTOR_KEY".to_string(),
+            ..CloudLlmConfig::default()
+        };
+        // api_key 为空时回退到环境变量
+        assert_eq!(cloud.resolve_api_key().unwrap(), "sk-env-key");
+        std::env::remove_var("TEST_KYLIN_DOCTOR_KEY");
+    }
+
+    #[test]
+    fn resolve_api_key_neither_configured() {
+        let cloud = CloudLlmConfig {
+            api_key: String::new(),
+            api_key_env: String::new(),
+            ..CloudLlmConfig::default()
+        };
+        // 两者都为空时报错
+        assert!(cloud.resolve_api_key().is_err());
+    }
+
+    #[test]
+    fn parse_toml_with_api_key() {
+        let toml = r#"
+[llm.cloud]
+provider = "anthropic"
+model = "claude-sonnet-4-20250514"
+api_key = "sk-ant-direct-key"
+endpoint = "https://api.anthropic.com"
+"#;
+        let config: Config = toml::from_str(toml).unwrap();
+        assert_eq!(config.llm.cloud.api_key, "sk-ant-direct-key");
+        assert_eq!(config.llm.cloud.resolve_api_key().unwrap(), "sk-ant-direct-key");
     }
 }
