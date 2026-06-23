@@ -16,9 +16,9 @@
 
 ```bash
 # deb 安装（推荐，无需编译）
-# 下载: https://github.com/fanwenzhu/kylin-doctor/releases/tag/v0.3.0
-sudo dpkg -i kylin-doctor_0.3.0_amd64.deb   # x86_64
-sudo dpkg -i kylin-doctor_0.3.0_arm64.deb   # arm64
+# 下载: https://github.com/fanwenzhu/kylin-doctor/releases/tag/v0.3.1
+sudo dpkg -i kylin-doctor_0.3.1_amd64.deb   # x86_64
+sudo dpkg -i kylin-doctor_0.3.1_arm64.deb   # arm64
 
 # 或用安装脚本（编译 + 安装到 /usr/local/bin）
 curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/install.sh | sudo bash
@@ -31,6 +31,14 @@ git clone https://github.com/fanwenzhu/kylin-doctor.git
 cd kylin-doctor
 sudo ./install.sh
 ```
+
+> **⚠️ arm64 工控机注意**：Release 中的 arm64 deb 包基于较新 GLIBC 交叉编译，部分嵌入式系统（如 KYLIN Embedded V10 SP1）可能因 GLIBC 版本过低无法运行。推荐使用 `install.sh` 在目标机器上本地编译安装：
+>
+> ```bash
+> git clone https://github.com/fanwenzhu/kylin-doctor.git
+> cd kylin-doctor
+> sudo ./install.sh
+> ```
 
 ### 卸载
 
@@ -140,6 +148,7 @@ kylin-doctor/
 - [x] v0.1.0 — 项目骨架 + 五大检测模块 + CLI/Web/AI 对话 + 知识库
 - [x] v0.2.0 — 安装脚本日志系统 + CLI 流式输出 + Spinner 动画
 - [x] v0.3.0 — CLI/Web 双端流式输出全覆盖 + Markdown 渲染 + 错误恢复
+- [x] v0.3.1 — config.toml 支持直接写入 API Key（无需环境变量）
 
 ## 文档
 
