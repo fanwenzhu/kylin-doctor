@@ -29,6 +29,7 @@ cargo check                    # 检查编译警告
 3. **重新构建 deb 包** — `./build-deb.sh`（amd64）+ `./build-deb.sh --arch arm64`（arm64），输出到 `dist/`
 4. **按需更新文档** — 如涉及功能变更或用法调整，同步更新 `USAGE.md` 和 `README.md`
 5. **打 git tag** — `git tag -a vX.Y.Z -m "描述"`
+6. **更新 GitHub Release** — `gh release upload vX.Y.Z dist/*.deb --clobber` 上传 deb 包，`gh release edit vX.Y.Z --notes "..." --draft=false` 更新说明并发布
 
 版本号在 `Cargo.toml` 的 `[workspace.package]` 中统一管理。详见 `CHANGELOG.md` 和 `docs/DEPLOYMENT.md`。
 
