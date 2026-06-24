@@ -17,6 +17,7 @@
 - **文档更新**: USAGE.md 和 config.toml.example 同步更新，示例改为推荐直接写入 `api_key` 方式
 
 ### 修复 (Fixed)
+- **Web 仪表盘扫描按钮无响应**: 移除 JavaScript 中的正则 lookbehind 断言 `(?<!)`，兼容工控机等旧版浏览器（ES2018 以下），修复 `SyntaxError: invalid regexp group` 导致整个 script 块不执行的问题
 - **Web 仪表盘扫描挂起**: 所有外部系统命令（`apt-get`、`dpkg`、`snap`、`flatpak`、`ss`、`find` 等）增加超时保护，防止 apt 锁被占用时扫描请求永久阻塞导致仪表盘"全面扫描"和单模块扫描无响应
   - 新增 `command_output_with_timeout()` 工具函数，子进程超时自动 kill 并回收
   - 默认超时 10 秒，apt 相关命令 30 秒，超时后优雅降级继续扫描后续项
