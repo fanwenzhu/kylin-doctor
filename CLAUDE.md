@@ -22,10 +22,15 @@ cargo check                    # 检查编译警告
 
 ## 版本管理（强制）
 
-- 版本号在 `Cargo.toml` 的 `[workspace.package]` 中统一管理
-- 每次功能变更必须同步更新 `CHANGELOG.md`（格式：Keep a Changelog）
-- 发布版本必须打 git tag：`git tag -a vX.Y.Z -m "描述"`
-- 详见 `CHANGELOG.md` 和 `docs/DEPLOYMENT.md`
+每次将本地更新推送到 GitHub 前，**必须**完成以下全部步骤：
+
+1. **更新版本号** — `Cargo.toml` 的 `[workspace.package].version`（语义化版本）
+2. **更新 CHANGELOG.md** — 按 Keep a Changelog 格式记录本次变更（新增/改进/修复）
+3. **重新构建 deb 包** — `./build-deb.sh`（amd64）+ `./build-deb.sh --arch arm64`（arm64），输出到 `dist/`
+4. **按需更新文档** — 如涉及功能变更或用法调整，同步更新 `USAGE.md` 和 `README.md`
+5. **打 git tag** — `git tag -a vX.Y.Z -m "描述"`
+
+版本号在 `Cargo.toml` 的 `[workspace.package]` 中统一管理。详见 `CHANGELOG.md` 和 `docs/DEPLOYMENT.md`。
 
 ## 代码规范
 
