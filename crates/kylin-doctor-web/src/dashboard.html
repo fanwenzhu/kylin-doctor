@@ -494,8 +494,8 @@ function renderMd(text) {
   // 粗体 **text**
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
 
-  // 斜体 *text*
-  html = html.replace(/(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, '<em>$1</em>');
+  // 斜体 *text*（粗体已先处理为 <strong>，此处安全匹配剩余的 *text*）
+  html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
 
   // 链接 [text](url)
   html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
@@ -550,8 +550,12 @@ function renderMd(text) {
 
   // 换行：连续两个换行变段落
   html = html.replace(/\n\n+/g, '</p><p>');
-  // 单个换行变 <br>（但不在 pre 标签内）
-  html = html.replace(/(?<!<\/pre>)\n(?!<)/g, '<br>');
+  // 单个换行变 <br>（pre 标签内不处理，用占位符保护）
+  html = html.replace(/<pre><code[\s\S]*?<\/code><\/pre>/g, function(m) {
+    return m.replace(/\n/g, '\x00NEWLINE\x00');
+  });
+  html = html.replace(/\n(?!<)/g, '<br>');
+  html = html.replace(/\x00NEWLINE\x00/g, '\n');
 
   return html;
 }
