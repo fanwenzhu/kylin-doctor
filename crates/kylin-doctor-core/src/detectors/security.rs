@@ -1,6 +1,7 @@
 use crate::detector::{Detector, Finding, FixAction, ScanReport, Severity};
+use crate::util::{command_output_with_timeout, DEFAULT_CMD_TIMEOUT_SECS, LONG_CMD_TIMEOUT_SECS};
 use std::process::Command;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// 安全审计检测模块
 pub struct SecurityDetector;
@@ -118,15 +119,15 @@ impl SecurityDetector {
         let mut findings = Vec::new();
 
         // 检查常见系统目录中的 SUID 文件
-        let output = match Command::new("find")
-            .args([
+        let output = match command_output_with_timeout(
+            Command::new("find").args([
                 "/usr/bin", "/usr/sbin", "/usr/local/bin", "/usr/local/sbin",
                 "-perm", "-4000", "-type", "f",
-            ])
-            .output()
-        {
-            Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
-            Err(_) => return findings,
+            ]),
+            Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+        ) {
+            Some(o) => String::from_utf8_lossy(&o.stdout).to_string(),
+            None => return findings,
         };
 
         let suid_files: Vec<&str> = output.lines().filter(|l| !l.trim().is_empty()).collect();
@@ -348,13 +349,15 @@ impl SecurityDetector {
     /// 检查防火墙状态
     fn check_firewall(&self) -> Vec<Finding> {
         let mut findings = Vec::new();
+        let timeout = Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS);
 
         // 检查 ufw
-        let ufw_output = Command::new("ufw")
-            .args(["status"])
-            .output();
+        let ufw_output = command_output_with_timeout(
+            Command::new("ufw").args(["status"]),
+            timeout,
+        );
 
-        if let Ok(o) = ufw_output {
+        if let Some(o) = ufw_output {
             let stdout = String::from_utf8_lossy(&o.stdout);
             if stdout.contains("Status: inactive") {
                 findings.push(Finding {
@@ -376,11 +379,12 @@ impl SecurityDetector {
         }
 
         // 如果 ufw 不可用，检查 iptables
-        let iptables_output = Command::new("iptables")
-            .args(["-L", "-n"])
-            .output();
+        let iptables_output = command_output_with_timeout(
+            Command::new("iptables").args(["-L", "-n"]),
+            timeout,
+        );
 
-        if let Ok(o) = iptables_output {
+        if let Some(o) = iptables_output {
             let stdout = String::from_utf8_lossy(&o.stdout);
             // 如果所有链的策略都是 ACCEPT 且没有规则
             if stdout.contains("policy ACCEPT") && !stdout.contains("DROP") && !stdout.contains("REJECT") {
@@ -408,12 +412,12 @@ impl SecurityDetector {
     fn check_open_ports(&self) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        let output = match Command::new("ss")
-            .args(["-tlnp"])
-            .output()
-        {
-            Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
-            Err(_) => return findings,
+        let output = match command_output_with_timeout(
+            Command::new("ss").args(["-tlnp"]),
+            Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+        ) {
+            Some(o) => String::from_utf8_lossy(&o.stdout).to_string(),
+            None => return findings,
         };
 
         // 高风险端口列表
@@ -670,9 +674,10 @@ impl SecurityDetector {
         let mut findings = Vec::new();
 
         // 检查 auditd 是否运行
-        let auditd_running = Command::new("systemctl")
-            .args(["is-active", "auditd"])
-            .output()
+        let auditd_running = command_output_with_timeout(
+            Command::new("systemctl").args(["is-active", "auditd"]),
+            Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+        )
             .map(|o| String::from_utf8_lossy(&o.stdout).trim() == "active")
             .unwrap_or(false);
 
@@ -842,12 +847,13 @@ impl SecurityDetector {
             }
         }
 
-        // 检查是否有待安装的安全更新
-        let security_output = Command::new("apt-get")
-            .args(["-s", "upgrade"])
-            .output();
+        // 检查是否有待安装的安全更新（apt 可能因锁阻塞，用较长超时）
+        let security_output = command_output_with_timeout(
+            Command::new("apt-get").args(["-s", "upgrade"]),
+            Duration::from_secs(LONG_CMD_TIMEOUT_SECS),
+        );
 
-        if let Ok(o) = security_output {
+        if let Some(o) = security_output {
             let stdout = String::from_utf8_lossy(&o.stdout);
             let security_updates = stdout
                 .lines()

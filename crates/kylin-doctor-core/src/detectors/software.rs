@@ -1,6 +1,7 @@
 use crate::detector::{Detector, Finding, FixAction, ScanReport, Severity};
+use crate::util::{command_output_with_timeout, DEFAULT_CMD_TIMEOUT_SECS, LONG_CMD_TIMEOUT_SECS};
 use std::process::Command;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// 软件生态检测模块
 pub struct SoftwareDetector;
@@ -13,14 +14,15 @@ impl SoftwareDetector {
     /// 检查 APT 包管理器状态
     fn check_apt_status(&self) -> Vec<Finding> {
         let mut findings = Vec::new();
+        let timeout = Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS);
 
         // 检查是否有损坏的包
-        let output = match Command::new("dpkg")
-            .args(["--audit"])
-            .output()
-        {
-            Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
-            Err(_) => return findings,
+        let output = match command_output_with_timeout(
+            Command::new("dpkg").args(["--audit"]),
+            timeout,
+        ) {
+            Some(o) => String::from_utf8_lossy(&o.stdout).to_string(),
+            None => return findings,
         };
 
         if !output.trim().is_empty() {
@@ -42,13 +44,13 @@ impl SoftwareDetector {
             });
         }
 
-        // 检查是否有可更新的包
-        let upgrade_output = match Command::new("apt")
-            .args(["list", "--upgradable"])
-            .output()
-        {
-            Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
-            Err(_) => return findings,
+        // 检查是否有可更新的包（apt 可能因锁阻塞，用较长超时）
+        let upgrade_output = match command_output_with_timeout(
+            Command::new("apt").args(["list", "--upgradable"]),
+            Duration::from_secs(LONG_CMD_TIMEOUT_SECS),
+        ) {
+            Some(o) => String::from_utf8_lossy(&o.stdout).to_string(),
+            None => return findings,
         };
 
         let upgradable_count = upgrade_output
@@ -131,12 +133,13 @@ impl SoftwareDetector {
             });
         }
 
-        // 检查 apt update 是否正常
-        let update_output = Command::new("apt-get")
-            .args(["update", "--dry-run"])
-            .output();
+        // 检查 apt update 是否正常（apt 可能因锁阻塞，用较长超时）
+        let update_output = command_output_with_timeout(
+            Command::new("apt-get").args(["update", "--dry-run"]),
+            Duration::from_secs(LONG_CMD_TIMEOUT_SECS),
+        );
 
-        if let Ok(o) = update_output {
+        if let Some(o) = update_output {
             let stderr = String::from_utf8_lossy(&o.stderr);
             if stderr.contains("NO_PUBKEY") || stderr.contains("EXPKEYSIG") {
                 findings.push(Finding {
@@ -221,14 +224,15 @@ impl SoftwareDetector {
     /// 检查中文字体
     fn check_chinese_fonts(&self) -> Vec<Finding> {
         let mut findings = Vec::new();
+        let timeout = Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS);
 
         // 通过 fc-list 检查中文字体
-        let output = match Command::new("fc-list")
-            .args([":lang=zh"])
-            .output()
-        {
-            Ok(o) => String::from_utf8_lossy(&o.stdout).to_string(),
-            Err(_) => {
+        let output = match command_output_with_timeout(
+            Command::new("fc-list").args([":lang=zh"]),
+            timeout,
+        ) {
+            Some(o) => String::from_utf8_lossy(&o.stdout).to_string(),
+            None => {
                 // fc-list 不可用，尝试直接检查字体目录
                 return self.check_font_dirs();
             }
@@ -257,15 +261,17 @@ impl SoftwareDetector {
     /// 备用：直接检查字体目录
     fn check_font_dirs(&self) -> Vec<Finding> {
         let mut findings = Vec::new();
+        let timeout = Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS);
 
         let font_dirs = ["/usr/share/fonts", "/usr/local/share/fonts"];
         let mut found_chinese = false;
 
         for dir in &font_dirs {
-            if let Ok(find_output) = Command::new("find")
-                .args([dir, "-name", "*wqy*", "-o", "-name", "*noto*cjk*", "-o", "-name", "*simhei*", "-o", "-name", "*simsun*"])
-                .output()
-            {
+            if let Some(find_output) = command_output_with_timeout(
+                Command::new("find")
+                    .args([dir, "-name", "*wqy*", "-o", "-name", "*noto*cjk*", "-o", "-name", "*simhei*", "-o", "-name", "*simsun*"]),
+                timeout,
+            ) {
                 let stdout = String::from_utf8_lossy(&find_output.stdout);
                 if !stdout.trim().is_empty() {
                     found_chinese = true;
@@ -330,13 +336,15 @@ impl SoftwareDetector {
     /// 检查依赖冲突
     fn check_dependency_conflicts(&self) -> Vec<Finding> {
         let mut findings = Vec::new();
+        let timeout = Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS);
 
         // apt-get check 检查依赖完整性
-        let check_output = Command::new("apt-get")
-            .args(["check"])
-            .output();
+        let check_output = command_output_with_timeout(
+            Command::new("apt-get").args(["check"]),
+            timeout,
+        );
 
-        if let Ok(o) = check_output {
+        if let Some(o) = check_output {
             let stdout = String::from_utf8_lossy(&o.stdout);
             let stderr = String::from_utf8_lossy(&o.stderr);
             let combined = format!("{}\n{}", stdout, stderr);
@@ -376,11 +384,12 @@ impl SoftwareDetector {
         }
 
         // 检查 held（被锁定）的包
-        let held_output = Command::new("dpkg")
-            .args(["--get-selections"])
-            .output();
+        let held_output = command_output_with_timeout(
+            Command::new("dpkg").args(["--get-selections"]),
+            timeout,
+        );
 
-        if let Ok(o) = held_output {
+        if let Some(o) = held_output {
             let stdout = String::from_utf8_lossy(&o.stdout);
             let held_packages: Vec<&str> = stdout
                 .lines()
@@ -414,11 +423,12 @@ impl SoftwareDetector {
         }
 
         // 检查残留的配置文件（已卸载但配置未清理）
-        let residual_output = Command::new("dpkg")
-            .args(["-l"])
-            .output();
+        let residual_output = command_output_with_timeout(
+            Command::new("dpkg").args(["-l"]),
+            timeout,
+        );
 
-        if let Ok(o) = residual_output {
+        if let Some(o) = residual_output {
             let stdout = String::from_utf8_lossy(&o.stdout);
             let residual_count = stdout
                 .lines()
@@ -486,11 +496,12 @@ impl SoftwareDetector {
         let waydroid_installed = check_command_version("waydroid", &["--version"]).is_some();
 
         if waydroid_installed {
-            let waydroid_status = Command::new("waydroid")
-                .args(["status"])
-                .output();
+            let waydroid_status = command_output_with_timeout(
+                Command::new("waydroid").args(["status"]),
+                Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+            );
 
-            if let Ok(o) = waydroid_status {
+            if let Some(o) = waydroid_status {
                 let stdout = String::from_utf8_lossy(&o.stdout);
                 if stdout.contains("not running") || stdout.contains("STOPPED") {
                     findings.push(Finding {
@@ -546,9 +557,10 @@ impl SoftwareDetector {
         }
 
         // 只有在有中文字体的情况下才检查渲染配置
-        let has_chinese_fonts = Command::new("fc-list")
-            .args([":lang=zh"])
-            .output()
+        let has_chinese_fonts = command_output_with_timeout(
+            Command::new("fc-list").args([":lang=zh"]),
+            Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+        )
             .map(|o| !String::from_utf8_lossy(&o.stdout).trim().is_empty())
             .unwrap_or(false);
 
@@ -588,11 +600,12 @@ EOF'"#.to_string(),
         }
 
         // 检查 hinting 和抗锯齿设置
-        let fc_match_output = Command::new("fc-match")
-            .args(["--verbose", "sans-serif:lang=zh"])
-            .output();
+        let fc_match_output = command_output_with_timeout(
+            Command::new("fc-match").args(["--verbose", "sans-serif:lang=zh"]),
+            Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS),
+        );
 
-        if let Ok(o) = fc_match_output {
+        if let Some(o) = fc_match_output {
             let stdout = String::from_utf8_lossy(&o.stdout);
 
             // 检查是否启用了 hinting 和抗锯齿
@@ -658,9 +671,13 @@ EOF'"#.to_string(),
     /// 审计 Snap/Flatpak 已安装应用
     fn check_installed_apps(&self) -> Vec<Finding> {
         let mut findings = Vec::new();
+        let timeout = Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS);
 
         // 审计 Snap 已安装应用
-        if let Ok(o) = Command::new("snap").args(["list"]).output() {
+        if let Some(o) = command_output_with_timeout(
+            Command::new("snap").args(["list"]),
+            timeout,
+        ) {
             let stdout = String::from_utf8_lossy(&o.stdout);
             let _snap_count = stdout.lines().skip(1).filter(|l| !l.trim().is_empty()).count();
 
@@ -693,11 +710,12 @@ EOF'"#.to_string(),
             }
 
             // 检查是否有 snap 应用需要刷新
-            let refresh_output = Command::new("snap")
-                .args(["refresh", "--list"])
-                .output();
+            let refresh_output = command_output_with_timeout(
+                Command::new("snap").args(["refresh", "--list"]),
+                timeout,
+            );
 
-            if let Ok(ro) = refresh_output {
+            if let Some(ro) = refresh_output {
                 let rstdout = String::from_utf8_lossy(&ro.stdout);
                 let refreshable = rstdout.lines().filter(|l| !l.trim().is_empty()).count();
                 if refreshable > 0 {
@@ -720,17 +738,21 @@ EOF'"#.to_string(),
         }
 
         // 审计 Flatpak 已安装应用
-        if let Ok(o) = Command::new("flatpak").args(["list", "--app"]).output() {
+        if let Some(o) = command_output_with_timeout(
+            Command::new("flatpak").args(["list", "--app"]),
+            timeout,
+        ) {
             let stdout = String::from_utf8_lossy(&o.stdout);
             let flatpak_count = stdout.lines().filter(|l| !l.trim().is_empty()).count();
 
             if flatpak_count > 0 {
                 // 检查是否有未使用的 Flatpak 运行时（可以清理）
-                let runtime_output = Command::new("flatpak")
-                    .args(["list", "--runtime", "--columns=application"])
-                    .output();
+                let runtime_output = command_output_with_timeout(
+                    Command::new("flatpak").args(["list", "--runtime", "--columns=application"]),
+                    timeout,
+                );
 
-                if let Ok(ro) = runtime_output {
+                if let Some(ro) = runtime_output {
                     let rstdout = String::from_utf8_lossy(&ro.stdout);
                     let runtime_count = rstdout.lines().filter(|l| !l.trim().is_empty()).count();
 
@@ -760,15 +782,17 @@ EOF'"#.to_string(),
     /// 检查 Snap/Flatpak 等通用包管理器
     fn check_universal_packages(&self) -> Vec<Finding> {
         let mut findings = Vec::new();
+        let timeout = Duration::from_secs(DEFAULT_CMD_TIMEOUT_SECS);
 
         // 检查 Snap
         if check_command_version("snap", &["--version"]).is_some() {
             // 检查 snap 服务是否正常
-            let output = Command::new("snap")
-                .args(["list"])
-                .output();
+            let output = command_output_with_timeout(
+                Command::new("snap").args(["list"]),
+                timeout,
+            );
 
-            if let Err(_) = output {
+            if output.is_none() {
                 findings.push(Finding {
                     id: "sw-snap-broken".to_string(),
                     module: "software".to_string(),
@@ -788,11 +812,12 @@ EOF'"#.to_string(),
 
         // 检查 Flatpak
         if check_command_version("flatpak", &["--version"]).is_some() {
-            let output = Command::new("flatpak")
-                .args(["remotes"])
-                .output();
+            let output = command_output_with_timeout(
+                Command::new("flatpak").args(["remotes"]),
+                timeout,
+            );
 
-            if let Ok(o) = output {
+            if let Some(o) = output {
                 let stdout = String::from_utf8_lossy(&o.stdout);
                 if stdout.trim().is_empty() {
                     findings.push(Finding {
