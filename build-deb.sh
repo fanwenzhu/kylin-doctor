@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ============================================================
 # kylin-doctor deb 打包脚本
-# 用法: ./build-deb.sh [--arch amd64|arm64] [--skip-build]
+# 用法: ./build-deb.sh [--arch amd64|arm64] [--skip-build] [--static]
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -25,21 +25,25 @@ log_err()   { echo -e "${RED}[ERROR]${NC} $*"; }
 # --- 参数解析 ---
 ARCH=""
 SKIP_BUILD=false
+STATIC=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --arch)     ARCH="$2"; shift 2 ;;
         --skip-build) SKIP_BUILD=true; shift ;;
+        --static)   STATIC=true; shift ;;
         -h|--help)
-            echo "用法: $0 [--arch amd64|arm64] [--skip-build]"
+            echo "用法: $0 [--arch amd64|arm64] [--skip-build] [--static]"
             echo ""
             echo "选项:"
             echo "  --arch ARCH      指定目标架构 (amd64 或 arm64，默认自动检测)"
             echo "  --skip-build     跳过编译，使用已有的二进制"
+            echo "  --static         使用 musl 静态编译，消除 glibc 依赖"
             echo "  -h, --help       显示帮助"
             echo ""
             echo "示例:"
             echo "  $0                          # 编译当前架构并打包"
+            echo "  $0 --static                 # 静态编译当前架构并打包"
             echo "  $0 --arch arm64             # 交叉编译 arm64 并打包"
             echo "  $0 --arch amd64 --skip-build  # 跳过编译，直接打包"
             exit 0
@@ -61,19 +65,29 @@ fi
 # 判断是否需要交叉编译
 CROSS=false
 CARGO_TARGET=""
-case "$ARCH" in
-    amd64)  CARGO_TARGET="x86_64-unknown-linux-gnu" ;;
-    arm64)  CARGO_TARGET="aarch64-unknown-linux-gnu" ;;
-    *) log_err "不支持的目标架构: $ARCH"; exit 1 ;;
-esac
+if [[ "$STATIC" == true ]]; then
+    case "$ARCH" in
+        amd64)  CARGO_TARGET="x86_64-unknown-linux-musl" ;;
+        arm64)  CARGO_TARGET="aarch64-unknown-linux-musl" ;;
+        *) log_err "不支持的目标架构: $ARCH"; exit 1 ;;
+    esac
+else
+    case "$ARCH" in
+        amd64)  CARGO_TARGET="x86_64-unknown-linux-gnu" ;;
+        arm64)  CARGO_TARGET="aarch64-unknown-linux-gnu" ;;
+        *) log_err "不支持的目标架构: $ARCH"; exit 1 ;;
+    esac
+fi
 
-if [[ "$ARCH" == "arm64" && "$HOST_ARCH" == "x86_64" ]] || \
-   [[ "$ARCH" == "amd64" && "$HOST_ARCH" == "aarch64" ]]; then
+if [[ "$STATIC" == false ]] && \
+   { [[ "$ARCH" == "arm64" && "$HOST_ARCH" == "x86_64" ]] || \
+     [[ "$ARCH" == "amd64" && "$HOST_ARCH" == "aarch64" ]]; }; then
     CROSS=true
 fi
 
 log_info "宿主架构: $HOST_ARCH"
 log_info "目标架构: $ARCH"
+[[ "$STATIC" == true ]] && log_info "静态编译: $CARGO_TARGET (musl)"
 [[ "$CROSS" == true ]] && log_info "交叉编译: $CARGO_TARGET"
 
 # --- 读取版本号 ---
@@ -93,7 +107,20 @@ log_info "输出: $DIST_DIR/${DEB_NAME}.deb"
 
 # --- 编译 ---
 if [[ "$SKIP_BUILD" == false ]]; then
-    if [[ "$CROSS" == true ]]; then
+    if [[ "$STATIC" == true ]]; then
+        log_info "静态编译 release 版本 ($CARGO_TARGET)..."
+
+        # 检查 musl-gcc
+        if ! which musl-gcc >/dev/null 2>&1; then
+            log_err "找不到 musl-gcc"
+            log_err "安装: sudo apt install musl-tools (Debian) 或 sudo dnf install musl-devel (RHEL)"
+            log_err "或从源码编译: https://musl.libc.org/"
+            exit 1
+        fi
+
+        export RUSTFLAGS='-C target-feature=+crt-static'
+        cargo build --release --target "$CARGO_TARGET" 2>&1
+    elif [[ "$CROSS" == true ]]; then
         log_info "交叉编译 release 版本 ($CARGO_TARGET)..."
 
         # 检查交叉编译器
@@ -119,7 +146,7 @@ else
 fi
 
 # --- 确定二进制路径 ---
-if [[ "$CROSS" == true ]]; then
+if [[ "$CROSS" == true ]] || [[ "$STATIC" == true ]]; then
     BIN_DIR="$SCRIPT_DIR/target/$CARGO_TARGET/release"
 else
     BIN_DIR="$SCRIPT_DIR/target/release"
