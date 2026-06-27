@@ -33,6 +33,13 @@ cargo check                    # 检查编译警告
    ./build-deb.sh --arch arm64 --static --skip-build          # 打包 arm64 deb
    ```
    **注意**: arm64 必须用 `cross` 工具编译（`cargo install cross`），直接用 `aarch64-linux-gnu-gcc` 编译 musl 目标会失败（符号不兼容）。
+   **构建后必须验证**：
+   ```bash
+   # 检查版本号
+   strings dist/kylin-doctor_*.deb | grep "v0\.3\."
+   # 本地启动测试
+   timeout 8 target/release/kylin-doctor-web & sleep 5 && curl -s http://127.0.0.1:8080/api/status && pkill kylin-doctor-web
+   ```
 4. **按需更新文档** — 如涉及功能变更或用法调整，同步更新 `USAGE.md` 和 `README.md`
 5. **打 git tag** — `git tag -a vX.Y.Z -m "描述"`
 6. **更新 GitHub Release** — `gh release upload vX.Y.Z dist/*.deb --clobber` 上传 deb 包，`gh release edit vX.Y.Z --notes "..." --draft=false` 更新说明并发布
