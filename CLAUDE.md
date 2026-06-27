@@ -26,7 +26,13 @@ cargo check                    # 检查编译警告
 
 1. **更新版本号** — `Cargo.toml` 的 `[workspace.package].version`（语义化版本）
 2. **更新 CHANGELOG.md** — 按 Keep a Changelog 格式记录本次变更（新增/改进/修复）
-3. **重新构建 deb 包** — `./build-deb.sh`（amd64）+ `./build-deb.sh --arch arm64`（arm64），输出到 `dist/`
+3. **重新构建 deb 包** — **必须静态编译（musl），禁止动态链接（glibc）**，原因：工控机 glibc 版本较低，动态编译会导致 `GLIBC_x.xx not found` 运行失败。
+   ```bash
+   ./build-deb.sh --static                # amd64 musl 静态
+   cross build --release --target aarch64-unknown-linux-musl  # arm64 musl 静态（用 cross 工具）
+   ./build-deb.sh --arch arm64 --static --skip-build          # 打包 arm64 deb
+   ```
+   **注意**: arm64 必须用 `cross` 工具编译（`cargo install cross`），直接用 `aarch64-linux-gnu-gcc` 编译 musl 目标会失败（符号不兼容）。
 4. **按需更新文档** — 如涉及功能变更或用法调整，同步更新 `USAGE.md` 和 `README.md`
 5. **打 git tag** — `git tag -a vX.Y.Z -m "描述"`
 6. **更新 GitHub Release** — `gh release upload vX.Y.Z dist/*.deb --clobber` 上传 deb 包，`gh release edit vX.Y.Z --notes "..." --draft=false` 更新说明并发布
