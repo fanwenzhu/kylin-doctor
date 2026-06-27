@@ -1,5 +1,5 @@
 use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
-use axum::extract::Path;
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{Html, Json};
 use futures_util::{SinkExt, StreamExt};
@@ -9,6 +9,9 @@ use kylin_doctor_core::{
     SystemDetector,
 };
 use serde_json::{json, Value};
+use std::sync::Arc;
+
+use crate::AppState;
 
 // ==================== REST API ====================
 
@@ -47,7 +50,7 @@ pub async fn scan_module(Path(module): Path<String>) -> Result<Json<Value>, Stat
 }
 
 /// 系统概览（快速信息，不执行完整扫描）
-pub async fn status() -> Json<Value> {
+pub async fn status(State(state): State<Arc<AppState>>) -> Json<Value> {
     let hostname = std::fs::read_to_string("/etc/hostname")
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
@@ -91,8 +94,8 @@ pub async fn status() -> Json<Value> {
         0
     };
 
-    // CPU 使用率快速采样
-    let cpu_usage = quick_cpu_usage();
+    // 从共享状态读取 CPU 使用率（由后台任务定时采样）
+    let cpu_usage = state.cpu.lock().map(|s| s.usage_pct).unwrap_or(0.0);
 
     Json(json!({
         "hostname": hostname,
@@ -566,27 +569,6 @@ fn serialize_report(report: &ScanReport) -> Value {
             "critical": critical
         }
     })
-}
-
-fn quick_cpu_usage() -> f64 {
-    let stat = std::fs::read_to_string("/proc/stat").unwrap_or_default();
-    for line in stat.lines() {
-        if line.starts_with("cpu ") {
-            let parts: Vec<u64> = line
-                .split_whitespace()
-                .skip(1)
-                .filter_map(|v| v.parse().ok())
-                .collect();
-            if parts.len() >= 5 {
-                let idle = parts[3] + parts[4];
-                let total: u64 = parts.iter().sum();
-                if total > 0 {
-                    return ((total - idle) as f64 / total as f64 * 100.0).round();
-                }
-            }
-        }
-    }
-    0.0
 }
 
 fn chrono_now() -> String {

@@ -270,6 +270,7 @@ async function runScan(module) {
     if (Array.isArray(data)) { data.forEach(r => { scanResults[r.module] = r; }); }
     else { scanResults[data.module] = data; }
     updateCards(); updateResults(); updateCharts();
+    loadStatus(); // 扫描完成后刷新概览卡片
     setStatus('ok');
   } catch (e) {
     setStatus('error');
@@ -299,6 +300,7 @@ function runScanWS() {
         break;
       case 'done':
         updateResults();
+        loadStatus(); // 扫描完成后刷新概览卡片
         setStatus('ok');
         break;
     }

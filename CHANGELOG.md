@@ -5,6 +5,17 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.2] - 2026-06-27
+
+### 修复 (Fixed)
+- **Web 仪表盘 CPU 显示 0%**: 修复 `quick_cpu_usage()` 只读一次 `/proc/stat` 导致计算的是开机至今平均值而非当前瞬时值的问题
+  - 新增后台 tokio 任务每 2 秒采样 `/proc/stat`，计算 delta 得到真实 CPU 使用率
+  - 引入 `AppState` 共享状态，`/api/status` 端点直接读取内存中的采样值，零延迟响应
+  - 删除有 bug 的 `quick_cpu_usage()` 函数
+
+### 改进 (Changed)
+- **扫描完成后自动刷新概览卡片**: REST 扫描和 WebSocket 扫描完成后自动调用 `loadStatus()`，CPU、内存、负载等信息实时更新
+
 ## [0.3.1] - 2026-06-23
 
 ### 新增 (Added)
@@ -84,6 +95,7 @@
 - **一键卸载脚本**: 支持清理程序文件、配置、Ollama
 - **部署文档**: 包含源码编译、systemd 服务、Docker 部署方式
 
+[0.3.2]: https://github.com/fanwenzhu/kylin-doctor/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/fanwenzhu/kylin-doctor/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/fanwenzhu/kylin-doctor/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/fanwenzhu/kylin-doctor/compare/v0.1.0...v0.2.0
