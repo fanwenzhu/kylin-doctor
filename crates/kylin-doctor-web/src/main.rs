@@ -33,7 +33,9 @@ fn read_cpu_stat() -> Option<(u64, u64)> {
                 .filter_map(|v| v.parse().ok())
                 .collect();
             if parts.len() >= 5 {
-                let idle = parts[3] + parts[4];
+                // idle 只算 parts[3]（idle），不算 iowait（parts[4]）
+                // iowait 表示 CPU 在等待 I/O，不是真正的空闲
+                let idle = parts[3];
                 let total: u64 = parts.iter().sum();
                 return Some((idle, total));
             }
