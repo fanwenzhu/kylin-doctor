@@ -5,6 +5,14 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.3.3] - 2026-06-29
+
+### 修复 (Fixed)
+- **Web 仪表盘 CPU 实时不刷新**: 前端 `loadStatus()` 只在页面加载时调用一次，后端每 2 秒采样 CPU 但前端从不主动获取最新值
+  - 添加 `setInterval(loadStatus, 2000)` 定时刷新，每 2 秒更新 CPU、内存、负载等指标
+  - 添加 pulse 动画效果，CPU 数值变化时有视觉反馈
+  - 根据 CPU 使用率动态变色：>90% 红色，>70% 黄色，否则绿色
+
 ## [0.3.2] - 2026-06-27
 
 ### 修复 (Fixed)
