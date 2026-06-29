@@ -45,6 +45,8 @@ header h1 span{color:var(--cyan)}
 .empty{text-align:center;padding:40px;color:var(--muted)}
 .spinner{display:inline-block;width:16px;height:16px;border:2px solid var(--border);border-top-color:var(--cyan);border-radius:50%;animation:spin .6s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%{opacity:1}50%{opacity:.5}100%{opacity:1}}
+.pulse{animation:pulse .3s ease-in-out}
 .chart-container{height:300px}
 footer{text-align:center;padding:20px;color:var(--muted);font-size:12px}
 /* Chat panel */
@@ -174,15 +176,31 @@ let chatConnected = false;
 window.addEventListener('load', () => {
   initCharts();
   loadStatus();
+  // 每 2 秒刷新状态（与后端 CPU 采样间隔一致）
+  setInterval(loadStatus, 2000);
 });
 
 // ==================== Status ====================
+let prevCpuPct = -1;
 async function loadStatus() {
   try {
     const resp = await fetch('/api/status');
     const data = await resp.json();
     document.getElementById('ov-hostname').textContent = data.hostname;
-    document.getElementById('ov-cpu').textContent = data.cpu_usage_pct + '%';
+
+    // CPU 使用率带动画效果
+    const cpuEl = document.getElementById('ov-cpu');
+    const cpuPct = data.cpu_usage_pct;
+    cpuEl.textContent = cpuPct + '%';
+    if (cpuPct !== prevCpuPct) {
+      cpuEl.classList.remove('pulse');
+      void cpuEl.offsetWidth; // 触发 reflow 重启动画
+      cpuEl.classList.add('pulse');
+      // 根据使用率变色
+      cpuEl.style.color = cpuPct > 90 ? 'var(--red)' : cpuPct > 70 ? 'var(--yellow)' : 'var(--green)';
+      prevCpuPct = cpuPct;
+    }
+
     document.getElementById('ov-load').textContent = '负载 ' + data.loadavg.split(' ').slice(0,3).join(' ');
     document.getElementById('ov-mem').textContent = data.memory.usage_pct + '%';
     document.getElementById('ov-mem-detail').textContent = data.memory.available_mb + ' MB 可用 / ' + data.memory.total_mb + ' MB';
