@@ -1,4 +1,5 @@
 use super::provider::{FunctionCall, LlmProvider, Message, ToolCall, ToolDefinition};
+use crate::util::sanitize_api_error;
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -238,7 +239,7 @@ impl LlmProvider for AnthropicProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Anthropic API 错误 ({}): {}", status, body);
+            anyhow::bail!("Anthropic API 错误 ({}): {}", status, sanitize_api_error(&body));
         }
 
         let chat_response: AnthropicChatResponse = response.json().await?;
@@ -289,7 +290,7 @@ impl LlmProvider for AnthropicProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Anthropic API 错误 ({}): {}", status, body);
+            anyhow::bail!("Anthropic API 错误 ({}): {}", status, sanitize_api_error(&body));
         }
 
         let chat_response: AnthropicChatResponse = response.json().await?;
@@ -365,7 +366,7 @@ impl LlmProvider for AnthropicProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Anthropic API 错误 ({}): {}", status, body);
+            anyhow::bail!("Anthropic API 错误 ({}): {}", status, sanitize_api_error(&body));
         }
 
         let mut full_response = String::new();

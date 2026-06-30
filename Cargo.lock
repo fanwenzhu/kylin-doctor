@@ -854,23 +854,22 @@ dependencies = [
 
 [[package]]
 name = "kylin-doctor-cli"
-version = "0.3.3"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "axum",
  "clap",
  "colored",
- "futures-util",
  "indicatif",
  "kylin-doctor-core",
+ "kylin-doctor-web",
  "serde_json",
  "tokio",
- "tower-http",
 ]
 
 [[package]]
 name = "kylin-doctor-core"
-version = "0.3.3"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -886,7 +885,7 @@ dependencies = [
 
 [[package]]
 name = "kylin-doctor-web"
-version = "0.3.3"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "axum",
@@ -895,7 +894,6 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
- "tower-http",
 ]
 
 [[package]]

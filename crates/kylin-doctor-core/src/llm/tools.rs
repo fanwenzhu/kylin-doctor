@@ -63,6 +63,21 @@ pub fn get_tool_definitions() -> Vec<ToolDefinition> {
     ]
 }
 
+/// 允许的工具名称白名单
+const ALLOWED_TOOLS: &[&str] = &[
+    "scan_system",
+    "scan_hardware",
+    "scan_software",
+    "scan_security",
+    "scan_performance",
+    "scan_all",
+];
+
+/// 验证工具名称是否在白名单内
+pub fn is_valid_tool(name: &str) -> bool {
+    ALLOWED_TOOLS.contains(&name)
+}
+
 /// 执行工具调用
 pub fn execute_tool(name: &str) -> anyhow::Result<String> {
     let report = match name {
@@ -72,7 +87,7 @@ pub fn execute_tool(name: &str) -> anyhow::Result<String> {
         "scan_security" => run_detector(&SecurityDetector::new())?,
         "scan_performance" => run_detector(&PerformanceDetector::new())?,
         "scan_all" => run_all_detectors()?,
-        _ => return Ok(format!("未知工具: {}", name)),
+        _ => return Ok("未知工具".to_string()),
     };
 
     Ok(format_report(&report))

@@ -22,14 +22,42 @@ impl std::fmt::Display for Severity {
 }
 
 /// 修复操作
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FixAction {
     /// 修复描述
     pub description: String,
-    /// 要执行的命令
+    /// 要执行的命令（用于显示和 sh -c 回退）
     pub command: String,
     /// 风险等级: low / medium / high
     pub risk_level: String,
+    /// 结构化执行：程序路径（优先于 sh -c）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
+    /// 结构化执行：参数列表
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub args: Option<Vec<String>>,
+}
+
+impl FixAction {
+    /// 安全执行修复操作
+    ///
+    /// 优先使用结构化的 program + args（无 shell 注入风险），
+    /// 回退到 `sh -c command`（仅当 program 未设置时）。
+    pub fn run_fix(&self) -> anyhow::Result<bool> {
+        let status = if let Some(ref program) = self.program {
+            // 结构化执行：直接调用程序，不经过 shell
+            let args = self.args.as_deref().unwrap_or(&[]);
+            std::process::Command::new(program)
+                .args(args)
+                .status()?
+        } else {
+            // 回退：通过 sh -c 执行（兼容旧式 command 字符串）
+            std::process::Command::new("sh")
+                .args(["-c", &self.command])
+                .status()?
+        };
+        Ok(status.success())
+    }
 }
 
 /// 单个检测发现

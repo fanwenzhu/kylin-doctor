@@ -39,6 +39,7 @@ impl SoftwareDetector {
                     description: "修复损坏的包".to_string(),
                     command: "sudo dpkg --configure -a && sudo apt-get install -f".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -85,6 +86,7 @@ impl SoftwareDetector {
                     description: "更新所有软件包".to_string(),
                     command: "sudo apt-get update && sudo apt-get upgrade -y".to_string(),
                     risk_level: "medium".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -128,6 +130,7 @@ impl SoftwareDetector {
                     description: "恢复默认软件源".to_string(),
                     command: "echo '请检查 /etc/apt/sources.list 并恢复正确的软件源配置'".to_string(),
                     risk_level: "medium".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: false,
             });
@@ -158,6 +161,7 @@ impl SoftwareDetector {
                         description: "更新软件源密钥".to_string(),
                         command: "sudo apt-key adv --keyserver keyserver.ubuntu.com --recv-keys $(apt-key list 2>/dev/null | grep -A1 'expired' | grep -oP '[0-9A-F]{16}')".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -185,6 +189,7 @@ impl SoftwareDetector {
                     description: "安装 Python 3".to_string(),
                     command: "sudo apt-get install -y python3".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -212,6 +217,7 @@ impl SoftwareDetector {
                         description: "安装 pip3".to_string(),
                         command: "sudo apt-get install -y python3-pip".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: true,
                 });
@@ -250,6 +256,7 @@ impl SoftwareDetector {
                     description: "安装中文字体".to_string(),
                     command: "sudo apt-get install -y fonts-wqy-zenhei fonts-wqy-microhei".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -292,6 +299,7 @@ impl SoftwareDetector {
                     description: "安装中文字体".to_string(),
                     command: "sudo apt-get install -y fonts-wqy-zenhei fonts-wqy-microhei".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -324,6 +332,7 @@ impl SoftwareDetector {
                         description: "初始化 Wine 环境".to_string(),
                         command: "wineboot --init".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: true,
                 });
@@ -377,6 +386,7 @@ impl SoftwareDetector {
                         description: "修复依赖关系".to_string(),
                         command: "sudo apt-get install -f && sudo dpkg --configure -a".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: true,
                 });
@@ -416,6 +426,7 @@ impl SoftwareDetector {
                         description: "解除包锁定".to_string(),
                         command: "echo '使用 sudo apt-mark unhold <包名> 解除锁定'".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -450,6 +461,7 @@ impl SoftwareDetector {
                         description: "清理残留配置文件".to_string(),
                         command: "sudo dpkg -l | grep '^rc' | awk '{print $2}' | xargs sudo dpkg --purge".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: true,
                 });
@@ -486,6 +498,7 @@ impl SoftwareDetector {
                         description: "启动 Anbox".to_string(),
                         command: "anbox launch --package=org.anbox.appmgr --component=org.anbox.appmgr.AppViewActivity".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -515,6 +528,7 @@ impl SoftwareDetector {
                             description: "启动 Waydroid".to_string(),
                             command: "sudo waydroid container start && waydroid show-full-ui".to_string(),
                             risk_level: "low".to_string(),
+                            ..Default::default()
                         }),
                         auto_fixable: false,
                     });
@@ -594,6 +608,7 @@ impl SoftwareDetector {
 </fontconfig>
 EOF'"#.to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -624,6 +639,7 @@ EOF'"#.to_string(),
                         description: "启用字体 hinting".to_string(),
                         command: "echo '在系统设置中启用字体 hinting，或执行: sudo dpkg-reconfigure fontconfig-config'".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -641,6 +657,7 @@ EOF'"#.to_string(),
                         description: "启用字体抗锯齿".to_string(),
                         command: "echo '在系统设置中启用字体抗锯齿'".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -659,6 +676,7 @@ EOF'"#.to_string(),
                         description: "刷新字体缓存".to_string(),
                         command: "sudo fc-cache -fv".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: true,
                 });
@@ -730,6 +748,7 @@ EOF'"#.to_string(),
                             description: "更新所有 Snap 应用".to_string(),
                             command: "sudo snap refresh".to_string(),
                             risk_level: "low".to_string(),
+                            ..Default::default()
                         }),
                         auto_fixable: true,
                     });
@@ -768,6 +787,7 @@ EOF'"#.to_string(),
                                 description: "清理未使用的 Flatpak 运行时".to_string(),
                                 command: "flatpak uninstall --unused".to_string(),
                                 risk_level: "low".to_string(),
+                                ..Default::default()
                             }),
                             auto_fixable: true,
                         });
@@ -804,6 +824,7 @@ EOF'"#.to_string(),
                         description: "重启 Snap 服务".to_string(),
                         command: "sudo systemctl restart snapd".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: true,
                 });
@@ -831,6 +852,7 @@ EOF'"#.to_string(),
                             description: "添加 Flathub 仓库".to_string(),
                             command: "sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo".to_string(),
                             risk_level: "low".to_string(),
+                            ..Default::default()
                         }),
                         auto_fixable: true,
                     });
@@ -878,10 +900,7 @@ impl Detector for SoftwareDetector {
 
     fn fix(&self, finding: &Finding) -> anyhow::Result<bool> {
         if let Some(ref fix_action) = finding.fix {
-            let status = Command::new("sh")
-                .args(["-c", &fix_action.command])
-                .status()?;
-            Ok(status.success())
+            fix_action.run_fix()
         } else {
             Ok(false)
         }

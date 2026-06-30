@@ -14,3 +14,4 @@ pub use detectors::SoftwareDetector;
 pub use detectors::SystemDetector;
 pub use knowledge::{KnowledgeStore, store::{Document, Chunk, SearchResult, KnowledgeStats}};
 pub use llm::{AnthropicProvider, LlmProvider, Message, OllamaProvider, OpenAiCompatProvider, FunctionCall, ToolCall, ToolDefinition};
+pub use util::{epoch_secs, parse_diskstats, parse_meminfo, sanitize_api_error, DiskStats};

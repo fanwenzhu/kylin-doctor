@@ -1,5 +1,5 @@
 use crate::detector::{Detector, Finding, FixAction, ScanReport, Severity};
-use crate::util::read_sysfs_u64;
+use crate::util::{parse_diskstats, parse_meminfo, read_sysfs_u64};
 use std::process::Command;
 use std::time::Instant;
 
@@ -56,6 +56,7 @@ impl PerformanceDetector {
                         description: "查看高耗进程".to_string(),
                         command: "top -bn1 -o %CPU | head -20".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -74,6 +75,7 @@ impl PerformanceDetector {
                         description: "查看高耗进程".to_string(),
                         command: "top -bn1 -o %CPU | head -20".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -126,6 +128,7 @@ impl PerformanceDetector {
                     description: "查看高耗进程".to_string(),
                     command: "top -bn1 -o %CPU | head -20".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: false,
             });
@@ -201,6 +204,7 @@ impl PerformanceDetector {
                         description: "清理内存缓存或关闭高耗进程".to_string(),
                         command: "sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: true,
                 });
@@ -224,6 +228,7 @@ impl PerformanceDetector {
                     description: "强制刷写脏页到磁盘".to_string(),
                     command: "sudo sync".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -247,6 +252,7 @@ impl PerformanceDetector {
                     description: "将 THP 设为 madvise 模式".to_string(),
                     command: "sudo sh -c 'echo madvise > /sys/kernel/mm/transparent_hugepage/enabled'".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -285,11 +291,11 @@ impl PerformanceDetector {
                 None => continue,
             };
 
-            let reads_diff = s2.reads_completed - s1.reads_completed;
-            let writes_diff = s2.writes_completed - s1.writes_completed;
-            let io_time_diff = s2.io_time_ms - s1.io_time_ms;
-            let _read_time_diff = s2.read_time_ms - s1.read_time_ms;
-            let _write_time_diff = s2.write_time_ms - s1.write_time_ms;
+            let reads_diff = s2.reads_completed.saturating_sub(s1.reads_completed);
+            let writes_diff = s2.writes_completed.saturating_sub(s1.writes_completed);
+            let io_time_diff = s2.io_time_ms.saturating_sub(s1.io_time_ms);
+            let _read_time_diff = s2.read_time_ms.saturating_sub(s1.read_time_ms);
+            let _write_time_diff = s2.write_time_ms.saturating_sub(s1.write_time_ms);
 
             let total_io = reads_diff + writes_diff;
             if total_io == 0 {
@@ -320,6 +326,7 @@ impl PerformanceDetector {
                         description: "检查磁盘健康和 I/O 进程".to_string(),
                         command: format!("iotop -o -P -d 1 -n 3 && smartctl -H /dev/{}", device),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -341,6 +348,7 @@ impl PerformanceDetector {
                         description: "查看 I/O 占用进程".to_string(),
                         command: "iotop -o -P -d 1 -n 3".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -412,6 +420,7 @@ impl PerformanceDetector {
                     description: "优化 TCP 参数".to_string(),
                     command: "sudo sysctl -w net.ipv4.tcp_tw_reuse=1".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -435,6 +444,7 @@ impl PerformanceDetector {
                     description: "查看连接详情".to_string(),
                     command: "ss -tnp | awk '{print $5}' | cut -d: -f1 | sort | uniq -c | sort -rn | head -20".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: false,
             });
@@ -479,6 +489,7 @@ impl PerformanceDetector {
                                             description: "检查网络连接".to_string(),
                                             command: format!("ping -c 10 {} && ip route show", gw),
                                             risk_level: "low".to_string(),
+                                            ..Default::default()
                                         }),
                                         auto_fixable: false,
                                     });
@@ -534,6 +545,7 @@ impl PerformanceDetector {
                         description: "连接电源适配器".to_string(),
                         command: "echo '请连接电源适配器为电池充电'".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -559,6 +571,7 @@ impl PerformanceDetector {
                     description: "检查电池详情".to_string(),
                     command: "upower -i /org/freedesktop/UPower/devices/battery_BAT0".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: false,
             });
@@ -580,6 +593,7 @@ impl PerformanceDetector {
                         description: "切换为按需调频".to_string(),
                         command: "sudo cpupower frequency-set -g ondemand".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: true,
                 });
@@ -652,6 +666,7 @@ impl PerformanceDetector {
                                     description: "检查合成器设置".to_string(),
                                     command: format!("echo '建议关闭桌面特效或检查显卡驱动：\n  KDE: 系统设置 → 显示 → 合成器\n  GNOME: 优化工具 → 外观 → 动画'"),
                                     risk_level: "low".to_string(),
+                                    ..Default::default()
                                 }),
                                 auto_fixable: false,
                             });
@@ -677,6 +692,7 @@ impl PerformanceDetector {
                                     description: "重启合成器".to_string(),
                                     command: format!("echo '可尝试重启桌面合成器释放内存'"),
                                     risk_level: "low".to_string(),
+                                    ..Default::default()
                                 }),
                                 auto_fixable: false,
                             });
@@ -715,6 +731,7 @@ impl PerformanceDetector {
                                                 description: "检查显示器设置".to_string(),
                                                 command: "xrandr --query".to_string(),
                                                 risk_level: "low".to_string(),
+                                                ..Default::default()
                                             }),
                                             auto_fixable: false,
                                         });
@@ -794,6 +811,7 @@ impl PerformanceDetector {
                         description: "触发内存整理".to_string(),
                         command: "sudo sh -c 'echo 1 > /proc/sys/vm/compact_memory'".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: true,
                 });
@@ -827,6 +845,7 @@ impl PerformanceDetector {
                     description: "检查内存使用情况".to_string(),
                     command: "cat /proc/buddyinfo && echo '---' && cat /proc/meminfo | grep -E 'MemTotal|MemFree|MemAvailable'".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: false,
             });
@@ -852,8 +871,8 @@ impl PerformanceDetector {
             Err(_) => return findings,
         };
 
-        let disk1 = parse_diskstats_full(&stats1);
-        let disk2 = parse_diskstats_full(&stats2);
+        let disk1 = parse_diskstats(&stats1);
+        let disk2 = parse_diskstats(&stats2);
 
         for (device, d2) in &disk2 {
             if device.starts_with("loop") || device.starts_with("ram") || device.starts_with("dm-") {
@@ -899,6 +918,7 @@ impl PerformanceDetector {
                                 description: "检查 I/O 密集型进程".to_string(),
                                 command: "iotop -o -P -d 1 -n 3".to_string(),
                                 risk_level: "low".to_string(),
+                                ..Default::default()
                             })
                         } else {
                             None
@@ -967,6 +987,7 @@ impl PerformanceDetector {
                                         description: "检查网线和交换机端口".to_string(),
                                         command: format!("ethtool {} && ethtool -S {}", iface, iface),
                                         risk_level: "low".to_string(),
+                                        ..Default::default()
                                     }),
                                     auto_fixable: false,
                                 });
@@ -989,6 +1010,7 @@ impl PerformanceDetector {
                                     description: "检查网卡和网线".to_string(),
                                     command: format!("ethtool {}", iface),
                                     risk_level: "low".to_string(),
+                                    ..Default::default()
                                 }),
                                 auto_fixable: false,
                             });
@@ -1089,6 +1111,7 @@ impl PerformanceDetector {
                             description: "检查 CPU 密集型进程".to_string(),
                             command: "top -bn1 -o %CPU | head -20".to_string(),
                             risk_level: "low".to_string(),
+                            ..Default::default()
                         }),
                         auto_fixable: false,
                     });
@@ -1144,6 +1167,7 @@ impl PerformanceDetector {
                             description: "检查磁盘 I/O 瓶颈".to_string(),
                             command: "iotop -o -P -d 1 -n 3".to_string(),
                             risk_level: "low".to_string(),
+                            ..Default::default()
                         }),
                         auto_fixable: false,
                     });
@@ -1211,6 +1235,7 @@ impl PerformanceDetector {
                             device
                         ),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: true,
                 });
@@ -1260,10 +1285,7 @@ impl Detector for PerformanceDetector {
 
     fn fix(&self, finding: &Finding) -> anyhow::Result<bool> {
         if let Some(ref fix_action) = finding.fix {
-            let status = Command::new("sh")
-                .args(["-c", &fix_action.command])
-                .status()?;
-            Ok(status.success())
+            fix_action.run_fix()
         } else {
             Ok(false)
         }
@@ -1302,51 +1324,6 @@ fn parse_cpu_stat(stat: &str) -> Option<(u64, u64)> {
     None
 }
 
-/// 解析 /proc/meminfo
-fn parse_meminfo(meminfo: &str) -> std::collections::HashMap<String, u64> {
-    let mut map = std::collections::HashMap::new();
-    for line in meminfo.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        if parts.len() >= 2 {
-            let key = parts[0].trim_end_matches(':').to_string();
-            if let Ok(val) = parts[1].parse::<u64>() {
-                map.insert(key, val);
-            }
-        }
-    }
-    map
-}
-
-/// 解析 /proc/diskstats
-struct DiskStats {
-    reads_completed: u64,
-    writes_completed: u64,
-    read_time_ms: u64,
-    write_time_ms: u64,
-    io_time_ms: u64,
-}
-
-fn parse_diskstats(diskstats: &str) -> std::collections::HashMap<String, DiskStats> {
-    let mut map = std::collections::HashMap::new();
-    for line in diskstats.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        // /proc/diskstats 格式: major minor name reads_completed reads_merged sectors_read read_time_ms writes_completed writes_merged sectors_written write_time_ms io_in_progress io_time_ms weighted_io_time_ms
-        if parts.len() < 14 {
-            continue;
-        }
-        let device = parts[2].to_string();
-        let stats = DiskStats {
-            reads_completed: parts[3].parse().unwrap_or(0),
-            writes_completed: parts[7].parse().unwrap_or(0),
-            read_time_ms: parts[6].parse().unwrap_or(0),
-            write_time_ms: parts[10].parse().unwrap_or(0),
-            io_time_ms: parts[12].parse().unwrap_or(0),
-        };
-        map.insert(device, stats);
-    }
-    map
-}
-
 /// 获取默认网关
 fn get_default_gateway() -> Option<String> {
     let output = Command::new("ip")
@@ -1361,40 +1338,6 @@ fn get_default_gateway() -> Option<String> {
         .map(|s| s.to_string())
 }
 
-/// 完整的磁盘统计（含 io_in_progress）
-#[allow(dead_code)]
-struct DiskStatsFull {
-    reads_completed: u64,
-    writes_completed: u64,
-    read_time_ms: u64,
-    write_time_ms: u64,
-    io_time_ms: u64,
-    io_in_progress: u64,
-}
-
-fn parse_diskstats_full(diskstats: &str) -> std::collections::HashMap<String, DiskStatsFull> {
-    let mut map = std::collections::HashMap::new();
-    for line in diskstats.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        // /proc/diskstats: major minor name rd_ios rd_merges rd_sectors rd_time wr_ios wr_merges wr_sectors wr_time io_in_progress io_time weighted_io_time
-        if parts.len() < 14 {
-            continue;
-        }
-        let device = parts[2].to_string();
-        map.insert(
-            device,
-            DiskStatsFull {
-                reads_completed: parts[3].parse().unwrap_or(0),
-                writes_completed: parts[7].parse().unwrap_or(0),
-                read_time_ms: parts[6].parse().unwrap_or(0),
-                write_time_ms: parts[10].parse().unwrap_or(0),
-                io_time_ms: parts[12].parse().unwrap_or(0),
-                io_in_progress: parts[11].parse().unwrap_or(0),
-            },
-        );
-    }
-    map
-}
 
 #[cfg(test)]
 mod tests {
@@ -1436,22 +1379,4 @@ mod tests {
         assert!(map.is_empty());
     }
 
-    #[test]
-    fn parse_diskstats_basic() {
-        let diskstats = "   8       0 sda 1000 200 8000 300 500 100 4000 200 0 400 500\n";
-        let map = parse_diskstats(diskstats);
-        let sda = map.get("sda").unwrap();
-        assert_eq!(sda.reads_completed, 1000);
-        assert_eq!(sda.writes_completed, 500);
-        assert_eq!(sda.read_time_ms, 300);
-        assert_eq!(sda.write_time_ms, 200);
-        assert_eq!(sda.io_time_ms, 400);
-    }
-
-    #[test]
-    fn parse_diskstats_too_few_fields() {
-        let diskstats = "   8       0 sda 1000 200\n";
-        let map = parse_diskstats(diskstats);
-        assert!(map.is_empty());
-    }
 }

@@ -1,3 +1,4 @@
+use crate::util::epoch_secs;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -32,6 +33,8 @@ pub struct SearchResult {
 pub struct KnowledgeStore {
     base_dir: PathBuf,
     documents: Vec<Document>,
+    /// 单调递增的文档 ID 计数器（避免 remove 后 add 产生 ID 碰撞）
+    next_id: usize,
 }
 
 impl KnowledgeStore {
@@ -40,6 +43,7 @@ impl KnowledgeStore {
         Self {
             base_dir,
             documents: Vec::new(),
+            next_id: 0,
         }
     }
 
@@ -63,6 +67,16 @@ impl KnowledgeStore {
         if index_path.exists() {
             let content = std::fs::read_to_string(&index_path)?;
             self.documents = serde_json::from_str(&content)?;
+            // 从已有文档 ID 恢复计数器，避免碰撞
+            for doc in &self.documents {
+                if let Some(num_str) = doc.id.strip_prefix("doc_") {
+                    if let Ok(num) = num_str.parse::<usize>() {
+                        if num >= self.next_id {
+                            self.next_id = num + 1;
+                        }
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -80,7 +94,8 @@ impl KnowledgeStore {
 
     /// 添加文档（从文本内容）
     pub fn add_document(&mut self, source: &str, title: &str, content: &str) -> anyhow::Result<String> {
-        let doc_id = format!("doc_{}", self.documents.len());
+        let doc_id = format!("doc_{}", self.next_id);
+        self.next_id += 1;
         let chunks = self.chunk_text(content, 500, 50);
 
         let doc = Document {
@@ -88,7 +103,7 @@ impl KnowledgeStore {
             source: source.to_string(),
             title: title.to_string(),
             chunks,
-            added_at: chrono_now(),
+            added_at: epoch_secs(),
         };
 
         // 保存原始文档
@@ -238,6 +253,11 @@ impl KnowledgeStore {
 
     /// 删除文档
     pub fn remove_document(&mut self, doc_id: &str) -> anyhow::Result<()> {
+        // 验证 doc_id 格式（防止路径遍历）
+        if !doc_id.starts_with("doc_") || doc_id[4..].parse::<usize>().is_err() {
+            anyhow::bail!("无效的文档 ID: {}（格式应为 doc_N）", doc_id);
+        }
+
         self.documents.retain(|d| d.id != doc_id);
         let raw_path = self.base_dir.join("raw_docs").join(format!("{}.txt", doc_id));
         if raw_path.exists() {
@@ -327,12 +347,6 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     }
 }
 
-fn chrono_now() -> String {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| format!("{}", d.as_secs()))
-        .unwrap_or_else(|_| "unknown".to_string())
-}
 
 #[cfg(test)]
 mod tests {
@@ -477,5 +491,32 @@ mod tests {
 
         store.remove_document(&id).unwrap();
         assert_eq!(store.list_documents().len(), 0);
+    }
+
+    #[test]
+    fn id_no_collision_after_remove_and_add() {
+        let mut store = temp_store();
+        store.init().unwrap();
+
+        let id_a = store.add_document("a.txt", "A", "content A").unwrap();
+        let id_b = store.add_document("b.txt", "B", "content B").unwrap();
+        let id_c = store.add_document("c.txt", "C", "content C").unwrap();
+        assert_eq!(id_a, "doc_0");
+        assert_eq!(id_b, "doc_1");
+        assert_eq!(id_c, "doc_2");
+
+        // Remove middle doc
+        store.remove_document(&id_b).unwrap();
+        assert_eq!(store.list_documents().len(), 2);
+
+        // Add new doc — must NOT collide with doc_2
+        let id_d = store.add_document("d.txt", "D", "content D").unwrap();
+        assert_eq!(id_d, "doc_3");
+        assert_eq!(store.list_documents().len(), 3);
+
+        // Verify no duplicate IDs
+        let ids: Vec<&str> = store.list_documents().iter().map(|d| d.id.as_str()).collect();
+        let unique_count = ids.iter().collect::<std::collections::HashSet<_>>().len();
+        assert_eq!(unique_count, ids.len(), "Duplicate document IDs detected: {:?}", ids);
     }
 }

@@ -4,7 +4,7 @@ use axum::http::StatusCode;
 use axum::response::{Html, Json};
 use futures_util::{SinkExt, StreamExt};
 use kylin_doctor_core::{
-    llm::tools, Config, Detector, HardwareDetector, LlmProvider, Message as LlmMessage,
+    epoch_secs, llm::tools, Config, Detector, HardwareDetector, LlmProvider, Message as LlmMessage,
     OllamaProvider, PerformanceDetector, ScanReport, SecurityDetector, SoftwareDetector,
     SystemDetector,
 };
@@ -13,32 +13,53 @@ use std::sync::Arc;
 
 use crate::AppState;
 
-// ==================== REST API ====================
+// ==================== 工具函数 ====================
 
-/// 全量扫描所有模块
-pub async fn scan_all() -> Result<Json<Value>, StatusCode> {
-    let detectors: Vec<Box<dyn Detector>> = vec![
+/// HTML 转义（防 XSS）
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
+}
+
+// ==================== Detector 工厂 ====================
+
+/// 创建所有检测模块
+fn all_detectors() -> Vec<Box<dyn Detector>> {
+    vec![
         Box::new(SystemDetector::new()),
         Box::new(HardwareDetector::new()),
         Box::new(SoftwareDetector::new()),
         Box::new(SecurityDetector::new()),
         Box::new(PerformanceDetector::new()),
-    ];
-
-    let reports = run_detectors(&detectors);
-    Ok(Json(json!(reports)))
+    ]
 }
 
-/// 扫描指定模块
-pub async fn scan_module(Path(module): Path<String>) -> Result<Json<Value>, StatusCode> {
-    let detector: Option<Box<dyn Detector>> = match module.as_str() {
+/// 按名称创建单个检测模块
+fn detector_by_name(name: &str) -> Option<Box<dyn Detector + Send>> {
+    match name {
         "system" => Some(Box::new(SystemDetector::new())),
         "hardware" => Some(Box::new(HardwareDetector::new())),
         "software" => Some(Box::new(SoftwareDetector::new())),
         "security" => Some(Box::new(SecurityDetector::new())),
         "performance" => Some(Box::new(PerformanceDetector::new())),
         _ => None,
-    };
+    }
+}
+
+// ==================== REST API ====================
+
+/// 全量扫描所有模块
+pub async fn scan_all() -> Result<Json<Value>, StatusCode> {
+    let reports = run_detectors(&all_detectors());
+    Ok(Json(json!(reports)))
+}
+
+/// 扫描指定模块
+pub async fn scan_module(Path(module): Path<String>) -> Result<Json<Value>, StatusCode> {
+    let detector = detector_by_name(&module);
 
     match detector {
         Some(d) => {
@@ -50,7 +71,12 @@ pub async fn scan_module(Path(module): Path<String>) -> Result<Json<Value>, Stat
 }
 
 /// 系统概览（快速信息，不执行完整扫描）
-pub async fn status(State(state): State<Arc<AppState>>) -> Json<Value> {
+pub async fn status_with_state(State(state): State<Arc<AppState>>) -> Json<Value> {
+    let cpu_usage = state.cpu.lock().map(|s| s.usage_pct).unwrap_or(0.0);
+    status_json(cpu_usage)
+}
+
+fn status_json(cpu_usage: f64) -> Json<Value> {
     let hostname = std::fs::read_to_string("/etc/hostname")
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|_| "unknown".to_string());
@@ -94,9 +120,6 @@ pub async fn status(State(state): State<Arc<AppState>>) -> Json<Value> {
         0
     };
 
-    // 从共享状态读取 CPU 使用率（由后台任务定时采样）
-    let cpu_usage = state.cpu.lock().map(|s| s.usage_pct).unwrap_or(0.0);
-
     Json(json!({
         "hostname": hostname,
         "kernel": kernel,
@@ -113,13 +136,7 @@ pub async fn status(State(state): State<Arc<AppState>>) -> Json<Value> {
 
 /// JSON 格式报告导出
 pub async fn report_json() -> Result<Json<Value>, StatusCode> {
-    let detectors: Vec<Box<dyn Detector>> = vec![
-        Box::new(SystemDetector::new()),
-        Box::new(HardwareDetector::new()),
-        Box::new(SoftwareDetector::new()),
-        Box::new(SecurityDetector::new()),
-        Box::new(PerformanceDetector::new()),
-    ];
+    let detectors = all_detectors();
 
     let reports = run_detectors_reports(&detectors);
     let (total_info, total_warning, total_critical) =
@@ -131,7 +148,7 @@ pub async fn report_json() -> Result<Json<Value>, StatusCode> {
     let modules: Vec<Value> = reports.iter().map(|r| serialize_report(r)).collect();
     Ok(Json(json!({
         "version": env!("CARGO_PKG_VERSION"),
-        "generated_at": chrono_now(),
+        "generated_at": epoch_secs(),
         "summary": {
             "info": total_info,
             "warning": total_warning,
@@ -143,14 +160,8 @@ pub async fn report_json() -> Result<Json<Value>, StatusCode> {
 }
 
 /// HTML 格式报告导出
-pub async fn report_html() -> Html<String> {
-    let detectors: Vec<Box<dyn Detector>> = vec![
-        Box::new(SystemDetector::new()),
-        Box::new(HardwareDetector::new()),
-        Box::new(SoftwareDetector::new()),
-        Box::new(SecurityDetector::new()),
-        Box::new(PerformanceDetector::new()),
-    ];
+pub async fn report_html() -> (axum::http::HeaderMap, Html<String>) {
+    let detectors = all_detectors();
 
     let reports = run_detectors_reports(&detectors);
     let (total_info, total_warning, total_critical) =
@@ -197,7 +208,7 @@ footer{{text-align:center;color:#94a3b8;font-size:12px;margin-top:40px}}
 <p><strong>生成时间:</strong> {}</p>
 </div>
 "#,
-        status, total_critical, total_warning, total_info, chrono_now()
+        status, total_critical, total_warning, total_info, epoch_secs()
     );
 
     for report in &reports {
@@ -206,7 +217,7 @@ footer{{text-align:center;color:#94a3b8;font-size:12px;margin-top:40px}}
             r#"<div class="module">
 <h2>📋 {} <small>({}ms, 严重:{} 警告:{} 信息:{})</small></h2>
 "#,
-            report.module, report.duration_ms, critical, warning, info
+            html_escape(&report.module), report.duration_ms, critical, warning, info
         ));
 
         for f in &report.findings {
@@ -221,12 +232,12 @@ footer{{text-align:center;color:#94a3b8;font-size:12px;margin-top:40px}}
 <span class="badge {}">{}</span> <strong>{}</strong>
 <p>{}</p>
 "#,
-                severity, severity, badge, f.title, f.description
+                severity, severity, badge, html_escape(&f.title), html_escape(&f.description)
             ));
             if let Some(ref fix) = f.fix {
                 html.push_str(&format!(
                     r#"<div class="fix">💡 {}: <code>{}</code></div>"#,
-                    fix.description, fix.command
+                    html_escape(&fix.description), html_escape(&fix.command)
                 ));
             }
             html.push_str("</div>");
@@ -240,7 +251,11 @@ footer{{text-align:center;color:#94a3b8;font-size:12px;margin-top:40px}}
 </body></html>"#,
     );
 
-    Html(html)
+    let mut headers = axum::http::HeaderMap::new();
+    headers.insert("X-Content-Type-Options", "nosniff".parse().unwrap());
+    headers.insert("X-Frame-Options", "DENY".parse().unwrap());
+    headers.insert("Content-Security-Policy", "default-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net".parse().unwrap());
+    (headers, Html(html))
 }
 
 // ==================== WebSocket ====================
@@ -272,16 +287,7 @@ async fn handle_ws_scan(mut socket: WebSocket) {
             .await;
 
         // 执行扫描
-        let detector: Option<Box<dyn Detector + Send>> = match *module {
-            "system" => Some(Box::new(SystemDetector::new())),
-            "hardware" => Some(Box::new(HardwareDetector::new())),
-            "software" => Some(Box::new(SoftwareDetector::new())),
-            "security" => Some(Box::new(SecurityDetector::new())),
-            "performance" => Some(Box::new(PerformanceDetector::new())),
-            _ => None,
-        };
-
-        if let Some(d) = detector {
+        if let Some(d) = detector_by_name(module) {
             let report = run_single(&*d);
             let _ = socket
                 .send(WsMessage::Text(
@@ -327,6 +333,19 @@ async fn handle_ws_chat(socket: WebSocket) {
     let system_prompt = "你是银河麒麟桌面系统的 AI 诊断助手。简洁回答用户问题，优先给出可执行的命令。";
     let mut messages: Vec<LlmMessage> = vec![LlmMessage::system(system_prompt)];
 
+    /// 聊天历史最大消息数（防止 OOM 和超出 LLM 上下文窗口）
+    const MAX_CHAT_MESSAGES: usize = 50;
+
+    /// 裁剪聊天历史，保留 system prompt + 最近的消息
+    fn trim_messages(messages: &mut Vec<LlmMessage>) {
+        if messages.len() > MAX_CHAT_MESSAGES {
+            let system = messages.remove(0);
+            let drain_count = messages.len() - (MAX_CHAT_MESSAGES - 1);
+            messages.drain(0..drain_count);
+            messages.insert(0, system);
+        }
+    }
+
     let _ = sender
         .send(WsMessage::Text(
             json!({"type":"ready","model":provider.name()}).to_string().into(),
@@ -337,6 +356,17 @@ async fn handle_ws_chat(socket: WebSocket) {
         match msg {
             WsMessage::Text(text) => {
                 let user_input = text.to_string();
+
+                // 消息大小限制（防止内存耗尽）
+                const MAX_MESSAGE_BYTES: usize = 64 * 1024; // 64KB
+                if user_input.len() > MAX_MESSAGE_BYTES {
+                    let _ = sender
+                        .send(WsMessage::Text(
+                            json!({"type":"error","message":"消息过长，请缩短输入"}).to_string().into(),
+                        ))
+                        .await;
+                    continue;
+                }
 
                 // 快捷命令
                 if user_input == "/scan" || user_input == "/扫描" {
@@ -364,6 +394,7 @@ async fn handle_ws_chat(socket: WebSocket) {
                 }
 
                 messages.push(LlmMessage::user(&user_input));
+                trim_messages(&mut messages);
 
                 // 带工具的对话
                 let tools_def = tools::get_tool_definitions();
@@ -380,7 +411,12 @@ async fn handle_ws_chat(socket: WebSocket) {
                                     ))
                                     .await;
 
-                                match tools::execute_tool(&tc.function.name) {
+                                let tool_result = if tools::is_valid_tool(&tc.function.name) {
+                                        tools::execute_tool(&tc.function.name)
+                                    } else {
+                                        Ok("未知工具，已拒绝执行".to_string())
+                                    };
+                                match tool_result {
                                     Ok(result) => {
                                         messages
                                             .push(LlmMessage::tool_result(&tc.id, &result));
@@ -516,7 +552,7 @@ async fn stream_to_socket(
     // 清理：关闭 bridge，等待 drain 完成
     drop(tx); // 关闭 tokio channel
     let _ = bridge_task.await;
-    let sender = drain_task.await.unwrap();
+    let sender = drain_task.await.expect("WebSocket drain task panicked");
 
     (full, sender)
 }
@@ -571,9 +607,131 @@ fn serialize_report(report: &ScanReport) -> Value {
     })
 }
 
-fn chrono_now() -> String {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| format!("{}", d.as_secs()))
-        .unwrap_or_else(|_| "unknown".to_string())
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kylin_doctor_core::{Finding, FixAction, ScanReport, Severity};
+
+    #[test]
+    fn serialize_report_empty() {
+        let report = ScanReport::new("test".to_string());
+        let val = serialize_report(&report);
+        assert_eq!(val["module"], "test");
+        assert_eq!(val["duration_ms"], 0);
+        assert_eq!(val["summary"]["info"], 0);
+        assert_eq!(val["summary"]["warning"], 0);
+        assert_eq!(val["summary"]["critical"], 0);
+        assert!(val["findings"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn serialize_report_with_findings() {
+        let mut report = ScanReport::new("hardware".to_string());
+        report.findings.push(Finding {
+            id: "hw-test".to_string(),
+            module: "hardware".to_string(),
+            severity: Severity::Warning,
+            title: "Test warning".to_string(),
+            description: "A test warning".to_string(),
+            evidence: "evidence data".to_string(),
+            fix: Some(FixAction {
+                description: "Fix it".to_string(),
+                command: "echo fix".to_string(),
+                risk_level: "low".to_string(),
+                ..Default::default()
+            }),
+            auto_fixable: true,
+        });
+        report.duration_ms = 42;
+
+        let val = serialize_report(&report);
+        assert_eq!(val["module"], "hardware");
+        assert_eq!(val["duration_ms"], 42);
+        assert_eq!(val["summary"]["warning"], 1);
+        let findings = val["findings"].as_array().unwrap();
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0]["severity"], "warning");
+        assert_eq!(findings[0]["auto_fixable"], true);
+        assert!(findings[0]["fix"].is_object());
+    }
+
+    #[test]
+    fn status_json_has_required_fields() {
+        let val = status_json(42.5);
+        assert!(val["hostname"].is_string());
+        assert!(val["kernel"].is_string());
+        assert!(val["uptime_hours"].is_string());
+        assert!(val["loadavg"].is_string());
+        assert_eq!(val["cpu_usage_pct"], 42.5);
+        assert!(val["memory"]["total_mb"].is_number());
+        assert!(val["memory"]["available_mb"].is_number());
+        assert!(val["memory"]["usage_pct"].is_number());
+    }
+
+    #[test]
+    fn status_json_cpu_zero() {
+        let val = status_json(0.0);
+        assert_eq!(val["cpu_usage_pct"], 0.0);
+    }
+
+    #[tokio::test]
+    async fn scan_all_returns_json_array() {
+        let result = scan_all().await;
+        assert!(result.is_ok());
+        let val = result.unwrap().0;
+        let arr = val.as_array().unwrap();
+        // 应该有 5 个模块
+        assert_eq!(arr.len(), 5);
+        // 每个结果应该有 module 字段
+        for item in arr {
+            assert!(item["module"].is_string());
+            assert!(item["findings"].is_array());
+            assert!(item["summary"].is_object());
+        }
+    }
+
+    #[tokio::test]
+    async fn scan_module_not_found() {
+        let result = scan_module(Path("nonexistent".to_string())).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn scan_module_valid() {
+        for module in &["system", "hardware", "software", "security", "performance"] {
+            let result = scan_module(Path(module.to_string())).await;
+            assert!(result.is_ok(), "Module {} should return OK", module);
+            let val = result.unwrap().0;
+            assert_eq!(val["module"], *module);
+        }
+    }
+
+    #[tokio::test]
+    async fn report_json_has_structure() {
+        let result = report_json().await;
+        assert!(result.is_ok());
+        let val = result.unwrap().0;
+        assert!(val["version"].is_string());
+        assert!(val["generated_at"].is_string());
+        assert!(val["summary"].is_object());
+        assert!(val["modules"].is_array());
+    }
+
+    #[tokio::test]
+    async fn report_html_contains_title() {
+        let (_headers, html) = report_html().await;
+        assert!(html.0.contains("kylin-doctor"));
+        assert!(html.0.contains("诊断报告"));
+    }
+
+    #[test]
+    fn html_escape_basic() {
+        assert_eq!(html_escape("<script>alert('xss')</script>"), "&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;");
+        assert_eq!(html_escape("a & b"), "a &amp; b");
+        assert_eq!(html_escape("no special chars"), "no special chars");
+        assert_eq!(html_escape(""), "");
+        assert_eq!(html_escape("\"quoted\""), "&quot;quoted&quot;");
+    }
 }
+

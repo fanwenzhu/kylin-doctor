@@ -46,6 +46,7 @@ impl SystemDetector {
                         description: "清理临时文件和旧日志".to_string(),
                         command: "sudo journalctl --vacuum-time=7d && sudo apt-get clean".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: true,
                 });
@@ -64,6 +65,7 @@ impl SystemDetector {
                         description: "清理临时文件".to_string(),
                         command: "sudo apt-get clean && rm -rf /tmp/*".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: true,
                 });
@@ -109,6 +111,7 @@ impl SystemDetector {
                     description: format!("重启服务 {}", unit),
                     command: format!("sudo systemctl restart {}", unit),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -290,10 +293,7 @@ impl Detector for SystemDetector {
 
     fn fix(&self, finding: &Finding) -> anyhow::Result<bool> {
         if let Some(ref fix_action) = finding.fix {
-            let status = Command::new("sh")
-                .args(["-c", &fix_action.command])
-                .status()?;
-            Ok(status.success())
+            fix_action.run_fix()
         } else {
             Ok(false)
         }

@@ -292,23 +292,30 @@ impl OllamaProvider {
 
         let mut full_response = String::new();
         let mut stream = response.bytes_stream();
+        let mut line_buffer = String::new();
+        let mut done = false;
 
         while let Some(chunk_result) = stream.next().await {
+            if done {
+                break;
+            }
             let chunk = chunk_result?;
+            line_buffer.push_str(&String::from_utf8_lossy(&chunk));
 
-            // 解析 SSE 格式：每行以 "data: " 开头
-            let text = String::from_utf8_lossy(&chunk);
-            for line in text.lines() {
-                let line = line.trim();
+            // 处理缓冲区中的完整行
+            while let Some(newline_pos) = line_buffer.find('\n') {
+                let line = line_buffer[..newline_pos].trim().to_string();
+                line_buffer = line_buffer[newline_pos + 1..].to_string();
+
                 if line.is_empty() || line.starts_with(':') {
                     continue;
                 }
 
-                // 移除 "data: " 前缀
-                let json_str = if line.starts_with("data: ") {
-                    &line[6..]
+                // 移除 "data: " 前缀（Ollama 有时带有时不带）
+                let json_str = if let Some(s) = line.strip_prefix("data: ") {
+                    s
                 } else {
-                    line
+                    &line
                 };
 
                 // 解析 JSON
@@ -322,7 +329,7 @@ impl OllamaProvider {
                         }
                     }
                     if response.done {
-                        break;
+                        done = true;
                     }
                 }
             }

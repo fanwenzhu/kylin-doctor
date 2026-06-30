@@ -38,7 +38,7 @@ pub enum FixModule {
     Performance,
 }
 
-pub fn execute(args: &FixArgs) -> anyhow::Result<()> {
+pub fn execute(args: &FixArgs, verbose: u8) -> anyhow::Result<()> {
     println!("{}", "🔧 kylin-doctor 修复工具".bold().cyan());
     println!();
 
@@ -119,7 +119,7 @@ pub fn execute(args: &FixArgs) -> anyhow::Result<()> {
                 fix.description,
                 risk_color(&fix.risk_level)
             );
-            if args.dry_run || cli_verbose() >= 2 {
+            if args.dry_run || verbose >= 2 {
                 println!("     📝 {}", fix.command.dimmed());
             }
         }
@@ -230,11 +230,3 @@ fn risk_color(risk: &str) -> colored::ColoredString {
     }
 }
 
-fn cli_verbose() -> u8 {
-    // 简单获取 verbose 级别
-    std::env::args()
-        .position(|a| a == "--verbose" || a == "-v")
-        .and_then(|i| std::env::args().nth(i + 1))
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(1)
-}

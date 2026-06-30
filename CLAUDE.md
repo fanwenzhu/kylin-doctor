@@ -13,7 +13,7 @@ Rust workspace 三 crate 架构：
 
 ```bash
 cargo build --release          # 发布构建
-cargo test                     # 运行全部测试（当前 56 个）
+cargo test                     # 运行全部测试（当前 93 个）
 cargo test -p kylin-doctor-core # 只运行核心库测试
 cargo check                    # 检查编译警告
 ./build-deb.sh                 # 构建当前架构 deb 包（输出到 dist/）
@@ -68,7 +68,7 @@ cargo check                    # 检查编译警告
 | Provider | 协议 | 流式 | 工具调用 |
 |----------|------|------|----------|
 | `OllamaProvider` | Ollama 本地 API | ✅ | ✅ |
-| `OpenAiCompatProvider` | OpenAI 兼容 `/chat/completions` | ❌（回退批量） | ❌ |
+| `OpenAiCompatProvider` | OpenAI 兼容 `/chat/completions` | ✅ | ✅ |
 | `AnthropicProvider` | Anthropic Messages API `/v1/messages` | ✅ | ✅ |
 
 ## 关键文件速查

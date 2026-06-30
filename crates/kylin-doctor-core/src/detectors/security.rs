@@ -55,6 +55,7 @@ impl SecurityDetector {
                         .collect::<Vec<_>>()
                         .join(" && "),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -106,6 +107,7 @@ impl SecurityDetector {
                         .collect::<Vec<_>>()
                         .join(" && "),
                     risk_level: "high".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: false,
             });
@@ -188,6 +190,7 @@ impl SecurityDetector {
                         unknown_suid.join("\n")
                     ),
                     risk_level: "medium".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: false,
             });
@@ -238,6 +241,7 @@ impl SecurityDetector {
                         description: format!("修正 {} 权限", path),
                         command: format!("sudo chmod {:o} {}", expected_mode, path),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: true,
                 });
@@ -281,6 +285,7 @@ impl SecurityDetector {
                     description: "禁止 root SSH 登录".to_string(),
                     command: "sudo sed -i 's/^PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config && sudo systemctl restart sshd".to_string(),
                     risk_level: "medium".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -300,6 +305,7 @@ impl SecurityDetector {
                     description: "改用密钥认证".to_string(),
                     command: "echo '建议先配置好 SSH 密钥，然后执行：sudo sed -i \"s/^PasswordAuthentication yes/PasswordAuthentication no/\" /etc/ssh/sshd_config && sudo systemctl restart sshd'".to_string(),
                     risk_level: "high".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: false,
             });
@@ -319,6 +325,7 @@ impl SecurityDetector {
                     description: "禁止空密码登录".to_string(),
                     command: "sudo sed -i 's/^PermitEmptyPasswords yes/PermitEmptyPasswords no/' /etc/ssh/sshd_config && sudo systemctl restart sshd".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -338,6 +345,7 @@ impl SecurityDetector {
                     description: "修改 SSH 端口".to_string(),
                     command: "echo '建议在 /etc/ssh/sshd_config 中修改 Port 为非标准端口（如 2222），并更新防火墙规则'".to_string(),
                     risk_level: "medium".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: false,
             });
@@ -371,6 +379,7 @@ impl SecurityDetector {
                         description: "启用防火墙".to_string(),
                         command: "sudo ufw enable".to_string(),
                         risk_level: "medium".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -399,6 +408,7 @@ impl SecurityDetector {
                         description: "配置防火墙规则".to_string(),
                         command: "echo '建议安装并启用 ufw：sudo apt-get install ufw && sudo ufw enable'".to_string(),
                         risk_level: "medium".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -486,6 +496,7 @@ impl SecurityDetector {
                     description: "限制高风险端口访问".to_string(),
                     command: "echo '建议通过防火墙限制这些端口的访问，或修改服务配置仅绑定到 127.0.0.1'".to_string(),
                     risk_level: "medium".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: false,
             });
@@ -558,6 +569,7 @@ impl SecurityDetector {
                         description: "安装 fail2ban 防暴力破解".to_string(),
                         command: "sudo apt-get install -y fail2ban && sudo systemctl enable --now fail2ban".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: true,
                 });
@@ -637,6 +649,7 @@ impl SecurityDetector {
                     description: "清理过期账户".to_string(),
                     command: "echo '使用 sudo userdel <用户名> 删除不需要的账户，或使用 sudo usermod -e YYYY-MM-DD <用户名> 更新过期日期'".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: false,
             });
@@ -661,6 +674,7 @@ impl SecurityDetector {
                     description: "要求修改密码".to_string(),
                     command: "echo '使用 sudo chage -M 90 <用户名> 设置密码有效期为 90 天'".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: false,
             });
@@ -694,6 +708,7 @@ impl SecurityDetector {
                     description: "启用 auditd".to_string(),
                     command: "sudo apt-get install -y auditd && sudo systemctl enable --now auditd".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -768,6 +783,7 @@ impl SecurityDetector {
                         description: "检查 sudo 日志详情".to_string(),
                         command: format!("grep 'sudo.*authentication failure' {} | tail -20", log_path),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -797,6 +813,7 @@ impl SecurityDetector {
                         description: "修复 /var/log 权限".to_string(),
                         command: "sudo chmod 755 /var/log".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: true,
                 });
@@ -840,6 +857,7 @@ impl SecurityDetector {
                             description: "检查内核更新".to_string(),
                             command: "sudo apt-get update && apt list --upgradable 2>/dev/null | grep linux-image".to_string(),
                             risk_level: "medium".to_string(),
+                            ..Default::default()
                         }),
                         auto_fixable: false,
                     });
@@ -875,6 +893,7 @@ impl SecurityDetector {
                         description: "安装安全更新".to_string(),
                         command: "sudo apt-get update && sudo apt-get upgrade -y".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: true,
                 });
@@ -895,6 +914,7 @@ impl SecurityDetector {
                     description: "启用自动安全更新".to_string(),
                     command: "sudo apt-get install -y unattended-upgrades && sudo dpkg-reconfigure -plow unattended-upgrades".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -918,6 +938,7 @@ impl SecurityDetector {
                     description: "启用完整 ASLR".to_string(),
                     command: "sudo sysctl -w kernel.randomize_va_space=2 && echo 'kernel.randomize_va_space=2' | sudo tee -a /etc/sysctl.conf".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -947,6 +968,7 @@ impl SecurityDetector {
                     description: "限制核心转储".to_string(),
                     command: "echo '* hard core 0' | sudo tee -a /etc/security/limits.conf".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -1007,6 +1029,7 @@ impl SecurityDetector {
                     description: "缩短密码有效期".to_string(),
                     command: "sudo sed -i 's/^PASS_MAX_DAYS.*/PASS_MAX_DAYS 90/' /etc/login.defs".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -1027,6 +1050,7 @@ impl SecurityDetector {
                     description: "增加密码最小长度".to_string(),
                     command: "sudo sed -i 's/^PASS_MIN_LEN.*/PASS_MIN_LEN 8/' /etc/login.defs".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -1074,10 +1098,7 @@ impl Detector for SecurityDetector {
 
     fn fix(&self, finding: &Finding) -> anyhow::Result<bool> {
         if let Some(ref fix_action) = finding.fix {
-            let status = Command::new("sh")
-                .args(["-c", &fix_action.command])
-                .status()?;
-            Ok(status.success())
+            fix_action.run_fix()
         } else {
             Ok(false)
         }

@@ -1,5 +1,5 @@
 use crate::detector::{Detector, Finding, FixAction, ScanReport, Severity};
-use crate::util::read_sysfs_u64;
+use crate::util::{parse_diskstats, read_sysfs_u64};
 use std::process::Command;
 use std::time::Instant;
 
@@ -66,6 +66,7 @@ impl HardwareDetector {
                         description: "检查散热风扇和散热器".to_string(),
                         command: "echo '请检查 CPU 散热器是否正常工作，清理灰尘，更换硅脂'".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -87,6 +88,7 @@ impl HardwareDetector {
                         description: "检查散热状况".to_string(),
                         command: "echo '建议清理散热器灰尘，确保通风良好'".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -144,6 +146,7 @@ impl HardwareDetector {
                     description: "关闭占用内存较多的程序".to_string(),
                     command: "echo '运行 htop 或 ps aux --sort=-%mem 查看内存占用最高的进程'".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: false,
             });
@@ -165,6 +168,7 @@ impl HardwareDetector {
                     description: "清理内存缓存".to_string(),
                     command: "sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'".to_string(),
                     risk_level: "low".to_string(),
+                    ..Default::default()
                 }),
                 auto_fixable: true,
             });
@@ -227,6 +231,7 @@ impl HardwareDetector {
                             device
                         ),
                         risk_level: "high".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -236,52 +241,60 @@ impl HardwareDetector {
         findings
     }
 
-    /// 检查磁盘 I/O 错误
+    /// 检查磁盘 I/O 饱和度（采样 1 秒计算 I/O 利用率）
     fn check_disk_io_errors(&self) -> Vec<Finding> {
         let mut findings = Vec::new();
 
-        let output = match std::fs::read_to_string("/proc/diskstats") {
+        let stats1 = match std::fs::read_to_string("/proc/diskstats") {
             Ok(s) => s,
             Err(_) => return findings,
         };
 
-        for line in output.lines() {
-            let parts: Vec<&str> = line.split_whitespace().collect();
-            // /proc/diskstats 格式: major minor name reads_completed reads_merged ...
-            // 字段 12 (0-indexed) 是 io_errors
-            if parts.len() < 13 {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+
+        let stats2 = match std::fs::read_to_string("/proc/diskstats") {
+            Ok(s) => s,
+            Err(_) => return findings,
+        };
+
+        let disk1 = parse_diskstats(&stats1);
+        let disk2 = parse_diskstats(&stats2);
+
+        for (device, d2) in &disk2 {
+            if device.starts_with("loop") || device.starts_with("ram") || device.starts_with("dm-") {
                 continue;
             }
 
-            let device = parts[2];
-            // 跳过分区，只看整盘（如 sda, nvme0n1）
-            if device.starts_with("loop") || device.starts_with("ram") {
-                continue;
-            }
-
-            let io_errors: u64 = match parts[12].parse() {
-                Ok(v) => v,
-                Err(_) => continue,
+            let d1 = match disk1.get(device) {
+                Some(d) => d,
+                None => continue,
             };
 
-            if io_errors > 0 {
+            // io_time_ms: 磁盘忙于 I/O 的毫秒数（字段 12，1 秒采样内最大 1000）
+            let io_time_diff = d2.io_time_ms.saturating_sub(d1.io_time_ms);
+
+            // I/O 利用率 = io_time / 采样间隔 * 100%（采样间隔 = 1000ms）
+            let io_util_pct = (io_time_diff as f64 / 1000.0) * 100.0;
+
+            if io_util_pct > 95.0 {
                 findings.push(Finding {
-                    id: format!("hw-disk-io-error-{}", device),
+                    id: format!("hw-disk-io-saturated-{}", device),
                     module: "hardware".to_string(),
                     severity: Severity::Warning,
-                    title: format!("磁盘 {} 存在 I/O 错误 ({})", device, io_errors),
+                    title: format!("磁盘 {} I/O 接近饱和 ({:.0}%)", device, io_util_pct),
                     description: format!(
-                        "设备 {} 累计 I/O 错误 {} 次，可能指示磁盘或控制器问题。",
-                        device, io_errors
+                        "设备 {} I/O 利用率 {:.1}%，磁盘几乎一直在忙，可能成为性能瓶颈。",
+                        device, io_util_pct
                     ),
                     evidence: format!(
-                        "device={} io_errors={}",
-                        device, io_errors
+                        "device={} io_util={:.1}% io_time_diff={}ms",
+                        device, io_util_pct, io_time_diff
                     ),
                     fix: Some(FixAction {
-                        description: "检查磁盘连接和健康状态".to_string(),
-                        command: format!("sudo smartctl -a /dev/{}", device),
+                        description: "检查 I/O 密集型进程".to_string(),
+                        command: "iotop -o -P -d 1 -n 3".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -360,6 +373,7 @@ impl HardwareDetector {
                                         description: "检查 GPU 散热".to_string(),
                                         command: "nvidia-smi -q -d TEMPERATURE".to_string(),
                                         risk_level: "low".to_string(),
+                                        ..Default::default()
                                     }),
                                     auto_fixable: false,
                                 });
@@ -375,6 +389,7 @@ impl HardwareDetector {
                                         description: "检查 GPU 散热".to_string(),
                                         command: "nvidia-smi -q -d TEMPERATURE".to_string(),
                                         risk_level: "low".to_string(),
+                                        ..Default::default()
                                     }),
                                     auto_fixable: false,
                                 });
@@ -392,6 +407,7 @@ impl HardwareDetector {
                                         description: "关闭 GPU 密集型应用".to_string(),
                                         command: "nvidia-smi".to_string(),
                                         risk_level: "low".to_string(),
+                                        ..Default::default()
                                     }),
                                     auto_fixable: false,
                                 });
@@ -465,6 +481,7 @@ impl HardwareDetector {
                         description: "启动 CUPS 打印服务".to_string(),
                         command: "sudo systemctl start cups && sudo systemctl enable cups".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: true,
                 });
@@ -494,6 +511,7 @@ impl HardwareDetector {
                         description: "启动 SANE 服务（如需网络扫描）".to_string(),
                         command: "sudo systemctl start saned".to_string(),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: true,
                 });
@@ -560,7 +578,7 @@ impl HardwareDetector {
             };
 
             if let Some(y) = year {
-                let current_year = 2026; // 使用编译时年份近似值
+                let current_year = chrono_now_year();
                 if current_year - y > 5 {
                     findings.push(Finding {
                         id: "hw-mobo-bios-old".to_string(),
@@ -576,6 +594,7 @@ impl HardwareDetector {
                             description: "检查是否有 BIOS 更新".to_string(),
                             command: format!("echo '请访问 {} 官网查看 {} 的最新 BIOS 更新'", board_vendor, board_name),
                             risk_level: "medium".to_string(),
+                            ..Default::default()
                         }),
                         auto_fixable: false,
                     });
@@ -610,6 +629,7 @@ impl HardwareDetector {
                                             description: "更换 CMOS 电池".to_string(),
                                             command: "echo '请更换主板上的 CR2032 纽扣电池'".to_string(),
                                             risk_level: "low".to_string(),
+                                            ..Default::default()
                                         }),
                                         auto_fixable: false,
                                     });
@@ -719,6 +739,7 @@ impl HardwareDetector {
                             description: if pct <= 10 { "立即备份数据并更换磁盘" } else { "计划更换磁盘" }.to_string(),
                             command: format!("sudo smartctl -a {}", device),
                             risk_level: "low".to_string(),
+                            ..Default::default()
                         }),
                         auto_fixable: false,
                     });
@@ -747,6 +768,7 @@ impl HardwareDetector {
                             description: "备份数据并监控坏道增长".to_string(),
                             command: format!("sudo smartctl -a {} | grep -i reallocated", device),
                             risk_level: "low".to_string(),
+                            ..Default::default()
                         }),
                         auto_fixable: false,
                     });
@@ -774,8 +796,8 @@ impl HardwareDetector {
             Err(_) => return findings,
         };
 
-        let disk1 = parse_diskstats_sectors(&stats1);
-        let disk2 = parse_diskstats_sectors(&stats2);
+        let disk1 = parse_diskstats(&stats1);
+        let disk2 = parse_diskstats(&stats2);
 
         for (device, d2) in &disk2 {
             if device.starts_with("loop") || device.starts_with("ram") || device.starts_with("dm-") {
@@ -860,6 +882,7 @@ impl HardwareDetector {
                         description: "检查网线连接".to_string(),
                         command: format!("sudo ip link set {} up", iface),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -891,6 +914,7 @@ impl HardwareDetector {
                         description: "检查网卡驱动和硬件".to_string(),
                         command: format!("ethtool {} && dmesg | grep -i {}", iface, iface),
                         risk_level: "low".to_string(),
+                        ..Default::default()
                     }),
                     auto_fixable: false,
                 });
@@ -937,10 +961,7 @@ impl Detector for HardwareDetector {
 
     fn fix(&self, finding: &Finding) -> anyhow::Result<bool> {
         if let Some(ref fix_action) = finding.fix {
-            let status = Command::new("sh")
-                .args(["-c", &fix_action.command])
-                .status()?;
-            Ok(status.success())
+            fix_action.run_fix()
         } else {
             Ok(false)
         }
@@ -975,27 +996,31 @@ fn raw_smart_value(smart_output: &str, attr_name: &str) -> Option<String> {
     None
 }
 
-/// 磁盘扇区统计（用于速度计算）
-struct DiskSectors {
-    sectors_read: u64,
-    sectors_written: u64,
+/// 获取当前年份（从系统时间）
+fn chrono_now_year() -> i32 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| {
+            // 简单计算: 一年 ≈ 365.2425 天
+            let days = d.as_secs() / 86400;
+            // 1970-01-01 起始
+            let mut year = 1970;
+            let mut remaining_days = days;
+            loop {
+                let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+                if remaining_days < days_in_year {
+                    break;
+                }
+                remaining_days -= days_in_year;
+                year += 1;
+            }
+            year as i32
+        })
+        .unwrap_or(2026) // 回退值
 }
 
-/// 解析 /proc/diskstats 中的扇区读写数
-fn parse_diskstats_sectors(diskstats: &str) -> std::collections::HashMap<String, DiskSectors> {
-    let mut map = std::collections::HashMap::new();
-    for line in diskstats.lines() {
-        let parts: Vec<&str> = line.split_whitespace().collect();
-        // /proc/diskstats: major minor name rd_ios rd_merges rd_sectors rd_time wr_ios wr_merges wr_sectors wr_time ...
-        if parts.len() < 14 {
-            continue;
-        }
-        let device = parts[2].to_string();
-        let sectors_read: u64 = parts[5].parse().unwrap_or(0);
-        let sectors_written: u64 = parts[9].parse().unwrap_or(0);
-        map.insert(device, DiskSectors { sectors_read, sectors_written });
-    }
-    map
+fn is_leap_year(year: i32) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
 #[cfg(test)]
@@ -1026,14 +1051,5 @@ mod tests {
     #[test]
     fn raw_smart_value_not_found() {
         assert_eq!(raw_smart_value("ID# ATTRIBUTE_NAME\n", "Missing"), None);
-    }
-
-    #[test]
-    fn parse_diskstats_sectors_basic() {
-        let diskstats = "   8       0 sda 1000 200 8000 300 500 100 4000 200 0 400 500\n";
-        let map = parse_diskstats_sectors(diskstats);
-        let sda = map.get("sda").unwrap();
-        assert_eq!(sda.sectors_read, 8000);
-        assert_eq!(sda.sectors_written, 4000);
     }
 }

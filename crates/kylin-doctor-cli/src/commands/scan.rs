@@ -160,7 +160,7 @@ fn print_report(report: &ScanReport, verbose: u8) {
 }
 
 /// 打印总结，返回退出码: 0=正常, 1=有警告, 2=有严重问题
-fn print_summary(reports: &[ScanReport]) -> i32 {
+pub fn print_summary(reports: &[ScanReport]) -> i32 {
     let mut total_info = 0;
     let mut total_warning = 0;
     let mut total_critical = 0;
@@ -205,5 +205,65 @@ fn print_summary(reports: &[ScanReport]) -> i32 {
             "✅ 系统一切正常，未发现需要关注的问题。".green().bold()
         );
         0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kylin_doctor_core::Finding;
+
+    fn make_finding(severity: Severity) -> Finding {
+        Finding {
+            id: "test".to_string(),
+            module: "test".to_string(),
+            severity,
+            title: "Test".to_string(),
+            description: "Test".to_string(),
+            evidence: "Test".to_string(),
+            fix: None,
+            auto_fixable: false,
+        }
+    }
+
+    #[test]
+    fn print_summary_no_reports() {
+        let reports: Vec<ScanReport> = vec![];
+        assert_eq!(print_summary(&reports), 0);
+    }
+
+    #[test]
+    fn print_summary_all_ok() {
+        let report = ScanReport::new("test".to_string());
+        assert_eq!(print_summary(&[report]), 0);
+    }
+
+    #[test]
+    fn print_summary_with_warning() {
+        let mut report = ScanReport::new("test".to_string());
+        report.findings.push(make_finding(Severity::Warning));
+        assert_eq!(print_summary(&[report]), 1);
+    }
+
+    #[test]
+    fn print_summary_with_critical() {
+        let mut report = ScanReport::new("test".to_string());
+        report.findings.push(make_finding(Severity::Critical));
+        assert_eq!(print_summary(&[report]), 2);
+    }
+
+    #[test]
+    fn print_summary_critical_overrides_warning() {
+        let mut report = ScanReport::new("test".to_string());
+        report.findings.push(make_finding(Severity::Warning));
+        report.findings.push(make_finding(Severity::Critical));
+        assert_eq!(print_summary(&[report]), 2);
+    }
+
+    #[test]
+    fn print_summary_info_only() {
+        let mut report = ScanReport::new("test".to_string());
+        report.findings.push(make_finding(Severity::Info));
+        assert_eq!(print_summary(&[report]), 0);
     }
 }

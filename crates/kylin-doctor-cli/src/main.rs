@@ -49,7 +49,7 @@ async fn main() -> anyhow::Result<()> {
         Commands::Chat(args) => commands::chat::execute(&args, &cli.provider).await?,
         Commands::Knowledge(args) => commands::knowledge::execute(&args).await?,
         Commands::Serve(args) => commands::serve::execute(&args).await?,
-        Commands::Fix(args) => commands::fix::execute(&args)?,
+        Commands::Fix(args) => commands::fix::execute(&args, cli.verbose)?,
     }
 
     Ok(())
