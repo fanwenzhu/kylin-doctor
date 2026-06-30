@@ -32,8 +32,8 @@ impl PerformanceDetector {
         let cpu2 = parse_cpu_stat(&stat2);
 
         if let (Some((idle1, total1)), Some((idle2, total2))) = (cpu1, cpu2) {
-            let total_diff = total2 - total1;
-            let idle_diff = idle2 - idle1;
+            let total_diff = total2.saturating_sub(total1);
+            let idle_diff = idle2.saturating_sub(idle1);
 
             if total_diff == 0 {
                 return findings;
@@ -181,7 +181,7 @@ impl PerformanceDetector {
 
         // 检查 Swap 使用情况
         if swap_total > 0 {
-            let swap_used = swap_total - swap_free;
+            let swap_used = swap_total.saturating_sub(swap_free);
             let swap_pct = (swap_used as f64 / swap_total as f64) * 100.0;
 
             if swap_pct > 80.0 {

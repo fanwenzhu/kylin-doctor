@@ -122,7 +122,7 @@ impl HardwareDetector {
             return findings;
         }
 
-        let used_kb = mem_total_kb - mem_available_kb;
+        let used_kb = mem_total_kb.saturating_sub(mem_available_kb);
         let usage_pct = (used_kb as f64 / mem_total_kb as f64) * 100.0;
         let total_mb = mem_total_kb / 1024;
         let used_mb = used_kb / 1024;

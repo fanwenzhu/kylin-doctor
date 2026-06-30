@@ -1,35 +1,73 @@
 use std::process::Command;
 use std::time::Duration;
 
+/// HTML 转义（防 XSS）
+pub fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#x27;")
+}
+
 /// 清理 API 错误响应中的敏感信息（API Key 等）
+///
+/// 替换所有 `sk-*` 和 `Bearer *` 模式，并截断过长响应体。
+/// 仅在 `sk-` 前面是引号、冒号、等号、空白或行首时才替换（避免误匹配 "task" 等词）。
 pub fn sanitize_api_error(body: &str) -> String {
-    let mut result = body.to_string();
-    // 替换常见的 API Key 模式
-    // OpenAI/Anthropic: sk-...
-    if let Some(start) = result.find("sk-") {
-        // 找到 sk- 后面的连续非空白字符
-        let end = result[start + 3..]
-            .find(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == '}' || c == ']')
-            .map(|i| start + 3 + i)
-            .unwrap_or(result.len());
-        let key_len = end - start;
-        if key_len > 10 {
-            // 只替换足够长的 key
-            let masked = format!("sk-***已隐藏***");
-            result = format!("{}{}{}", &result[..start], masked, &result[end..]);
+    let mut result = String::with_capacity(body.len());
+    let bytes = body.as_bytes();
+    let len = bytes.len();
+    let mut i = 0;
+
+    while i < len {
+        // 检查 sk- 模式（OpenAI/Anthropic API Key）
+        if i + 3 <= len
+            && &bytes[i..i + 3] == b"sk-"
+            && (i == 0 || {
+                let prev = bytes[i - 1] as char;
+                prev == '"' || prev == '\'' || prev == ':' || prev == '=' || prev.is_whitespace()
+            })
+        {
+            // 找到 key 结尾
+            let mut end = i + 3;
+            while end < len {
+                let c = bytes[end] as char;
+                if c.is_whitespace() || c == '"' || c == '\'' || c == '}' || c == ']' || c == ','
+                {
+                    break;
+                }
+                end += 1;
+            }
+            if end - i > 10 {
+                result.push_str("sk-***已隐藏***");
+                i = end;
+                continue;
+            }
         }
-    }
-    // Bearer token
-    if let Some(start) = result.find("Bearer ") {
-        let end = result[start + 7..]
-            .find(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == '}' || c == ']')
-            .map(|i| start + 7 + i)
-            .unwrap_or(result.len());
-        let token_len = end - start - 7;
-        if token_len > 10 {
-            result = format!("{}Bearer ***已隐藏***{}", &result[..start], &result[end..]);
+
+        // 检查 Bearer 模式
+        if i + 7 <= len && &bytes[i..i + 7] == b"Bearer " {
+            let mut end = i + 7;
+            while end < len {
+                let c = bytes[end] as char;
+                if c.is_whitespace() || c == '"' || c == '\'' || c == '}' || c == ']' || c == ','
+                {
+                    break;
+                }
+                end += 1;
+            }
+            if end - i - 7 > 10 {
+                result.push_str("Bearer ***已隐藏***");
+                i = end;
+                continue;
+            }
         }
+
+        result.push(bytes[i] as char);
+        i += 1;
     }
+
     // 截断过长的响应体
     if result.len() > 500 {
         result.truncate(500);
@@ -262,5 +300,41 @@ mod tests {
         let sanitized = sanitize_api_error(&body);
         assert!(sanitized.len() < 600);
         assert!(sanitized.contains("已截断"));
+    }
+
+    #[test]
+    fn sanitize_api_error_masks_multiple_keys() {
+        let body = r#"{"key1":"sk-abc123def456ghi789","key2":"sk-xyz987abc654def321"}"#;
+        let sanitized = sanitize_api_error(body);
+        assert!(!sanitized.contains("sk-abc123def456ghi789"));
+        assert!(!sanitized.contains("sk-xyz987abc654def321"));
+        assert_eq!(sanitized.matches("sk-***已隐藏***").count(), 2);
+    }
+
+    #[test]
+    fn sanitize_api_error_no_false_positive_on_task() {
+        let body = "task-execution-failed";
+        let sanitized = sanitize_api_error(body);
+        assert_eq!(sanitized, "task-execution-failed");
+    }
+
+    #[test]
+    fn sanitize_api_error_empty_string() {
+        assert_eq!(sanitize_api_error(""), "");
+    }
+
+    #[test]
+    fn sanitize_api_error_sk_after_quote() {
+        let body = r#"{"key": "sk-abc123def456ghi789jkl012"}"#;
+        let sanitized = sanitize_api_error(body);
+        assert!(!sanitized.contains("sk-abc123def456ghi789jkl012"));
+    }
+
+    #[test]
+    fn epoch_secs_returns_reasonable_value() {
+        let val = epoch_secs();
+        let ts: u64 = val.parse().expect("epoch_secs should return a number");
+        assert!(ts > 1700000000, "timestamp should be after 2023, got {}", ts);
+        assert!(ts < 2000000000, "timestamp should be before 2033, got {}", ts);
     }
 }

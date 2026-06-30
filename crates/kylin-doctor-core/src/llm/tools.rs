@@ -78,8 +78,11 @@ pub fn is_valid_tool(name: &str) -> bool {
     ALLOWED_TOOLS.contains(&name)
 }
 
-/// 执行工具调用
+/// 执行工具调用（拒绝未知工具名）
 pub fn execute_tool(name: &str) -> anyhow::Result<String> {
+    if !is_valid_tool(name) {
+        anyhow::bail!("未知工具: {}", name);
+    }
     let report = match name {
         "scan_system" => run_detector(&SystemDetector::new())?,
         "scan_hardware" => run_detector(&HardwareDetector::new())?,
@@ -87,9 +90,8 @@ pub fn execute_tool(name: &str) -> anyhow::Result<String> {
         "scan_security" => run_detector(&SecurityDetector::new())?,
         "scan_performance" => run_detector(&PerformanceDetector::new())?,
         "scan_all" => run_all_detectors()?,
-        _ => return Ok("未知工具".to_string()),
+        _ => unreachable!(), // is_valid_tool 已拦截
     };
-
     Ok(format_report(&report))
 }
 
@@ -148,4 +150,38 @@ fn format_report(reports: &[ScanReport]) -> String {
     }
 
     output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_valid_tool_all_valid_names() {
+        for name in &["scan_system", "scan_hardware", "scan_software", "scan_security", "scan_performance", "scan_all"] {
+            assert!(is_valid_tool(name), "{} should be valid", name);
+        }
+    }
+
+    #[test]
+    fn is_valid_tool_rejects_invalid() {
+        assert!(!is_valid_tool("evil"));
+        assert!(!is_valid_tool(""));
+        assert!(!is_valid_tool("rm -rf /"));
+        assert!(!is_valid_tool("SCAN_SYSTEM")); // case-sensitive
+        assert!(!is_valid_tool("scan_system_extra")); // not prefix match
+    }
+
+    #[test]
+    fn execute_tool_rejects_invalid() {
+        let result = execute_tool("nonexistent_tool");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("未知工具"));
+    }
+
+    #[test]
+    fn get_tool_definitions_count() {
+        let tools = get_tool_definitions();
+        assert_eq!(tools.len(), 6);
+    }
 }

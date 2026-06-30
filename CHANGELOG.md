@@ -7,7 +7,28 @@
 
 ## [0.3.5] - 2026-06-30
 
-### 修复 (Fixed) — 对抗性审查专项
+### 修复 (Fixed) — 对抗性审查第二轮
+- **`sanitize_api_error` 只掩码第一个 API Key**: 改为循环替换所有 `sk-*` 出现，并增加上下文检查（前面必须是引号/冒号/等号/空白），避免误匹配 "task" 等词
+- **Anthropic 流式缺行缓冲**: 与 OpenAI/Ollama 一样增加行缓冲区，修复 chunk 边界数据丢失回归
+- **Anthropic header parse unwrap 可 panic**: 改为 `if let Ok(val)` 安全处理
+- **`renderMd()` javascript: XSS**: markdown 链接处理增加 `javascript:` URL 过滤，防止 LLM 输出注入
+- **`html_escape` 两处实现不一致**: 统一到 `core::util::html_escape()`，CLI 版补充 `'` 转义
+- **`execute_tool` 对无效输入返回 Ok**: 改为返回 `Err`，拒绝未知工具名
+- **detector `Send` bound 不一致**: `all_detectors()` 统一返回 `Vec<Box<dyn Detector + Send>>`
+- **3 处 unsigned 减法无溢出保护**: CPU stat、swap、memory 使用 `saturating_sub`
+- **`FixAction` program/args 字段未序列化**: web API 的 `serialize_report` 现在包含 program/args 字段
+
+### 测试 (Tests)
+- **测试覆盖从 93 增至 107**: 新增 14 个测试
+  - `sanitize_api_error` 多 key + 上下文检查 (4 个)
+  - `run_fix()` 结构化执行 + 回退 (4 个)
+  - `is_valid_tool()` 白名单验证 (2 个)
+  - `execute_tool` 拒绝无效输入 (1 个)
+  - `epoch_secs` 合理性验证 (1 个)
+  - `remove_document` 非法 ID 拒绝 (1 个)
+  - `get_tool_definitions` 计数 (1 个)
+
+### 修复 (Fixed) — 对抗性审查第一轮
 - **`/proc/diskstats` 字段映射错误**: `hardware.rs` 的 `check_disk_io_errors` 误将字段 12（`io_time_ms`）当作 I/O 错误计数，任何有 I/O 活动的系统都会产生误报。改为正确的 I/O 饱和度检测
 - **SSE 流式解析器 chunk 边界丢数据**: `openai_compat.rs` 和 `ollama.rs` 的流式解析器在 HTTP chunk 不对齐 SSE 行时丢失内容。增加行缓冲区，跨 chunk 拼接完整行后再解析
 - **`[DONE]` 标记只退出内层循环**: 流式解析器收到 `[DONE]` 后继续处理剩余 chunk。改用 `done` 标志位退出双层循环

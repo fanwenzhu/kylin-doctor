@@ -519,4 +519,22 @@ mod tests {
         let unique_count = ids.iter().collect::<std::collections::HashSet<_>>().len();
         assert_eq!(unique_count, ids.len(), "Duplicate document IDs detected: {:?}", ids);
     }
+
+    #[test]
+    fn remove_document_rejects_invalid_ids() {
+        let mut store = temp_store();
+        store.init().unwrap();
+        store.add_document("test.txt", "Test", "Content").unwrap();
+
+        // 各种非法 ID
+        assert!(store.remove_document("evil_id").is_err());
+        assert!(store.remove_document("../../etc/passwd").is_err());
+        assert!(store.remove_document("doc_../secret").is_err());
+        assert!(store.remove_document("doc_-1").is_err());
+        assert!(store.remove_document("doc_abc").is_err());
+        assert!(store.remove_document("").is_err());
+
+        // 合法 ID
+        assert!(store.remove_document("doc_0").is_ok());
+    }
 }

@@ -517,8 +517,11 @@ function renderMd(text) {
   // 斜体 *text*（粗体已先处理为 <strong>，此处安全匹配剩余的 *text*）
   html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
 
-  // 链接 [text](url)
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // 链接 [text](url) — 过滤 javascript: URL 防止 XSS
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, function(match, text, url) {
+    if (/^javascript:/i.test(url.trim())) return esc(match);
+    return '<a href="' + esc(url) + '" target="_blank" rel="noopener">' + text + '</a>';
+  });
 
   // 引用 > text
   html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');

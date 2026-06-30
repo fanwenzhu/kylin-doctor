@@ -183,4 +183,57 @@ mod tests {
         assert_eq!(Severity::Info, Severity::Info);
         assert_ne!(Severity::Info, Severity::Warning);
     }
+
+    #[test]
+    fn run_fix_with_program_and_args() {
+        let fix = FixAction {
+            description: "test".to_string(),
+            command: "echo hello".to_string(),
+            risk_level: "low".to_string(),
+            program: Some("echo".to_string()),
+            args: Some(vec!["hello".to_string()]),
+        };
+        let result = fix.run_fix();
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // echo exits 0
+    }
+
+    #[test]
+    fn run_fix_with_command_only_fallback() {
+        let fix = FixAction {
+            description: "test".to_string(),
+            command: "true".to_string(),
+            risk_level: "low".to_string(),
+            ..Default::default()
+        };
+        let result = fix.run_fix();
+        assert!(result.is_ok());
+        assert!(result.unwrap());
+    }
+
+    #[test]
+    fn run_fix_command_fails() {
+        let fix = FixAction {
+            description: "test".to_string(),
+            command: "false".to_string(),
+            risk_level: "low".to_string(),
+            ..Default::default()
+        };
+        let result = fix.run_fix();
+        assert!(result.is_ok());
+        assert!(!result.unwrap()); // false exits 1
+    }
+
+    #[test]
+    fn run_fix_program_not_found() {
+        let fix = FixAction {
+            description: "test".to_string(),
+            command: "n/a".to_string(),
+            risk_level: "low".to_string(),
+            program: Some("/nonexistent/binary/12345".to_string()),
+            args: None,
+        };
+        let result = fix.run_fix();
+        assert!(result.is_err());
+    }
 }

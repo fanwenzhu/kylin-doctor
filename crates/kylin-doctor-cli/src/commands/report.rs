@@ -1,7 +1,7 @@
 use clap::{Args, ValueEnum};
 use colored::Colorize;
 use kylin_doctor_core::{
-    Detector, HardwareDetector, PerformanceDetector, ScanReport, SecurityDetector,
+    html_escape, Detector, HardwareDetector, PerformanceDetector, ScanReport, SecurityDetector,
     SoftwareDetector, SystemDetector,
 };
 use std::io::Write;
@@ -238,9 +238,3 @@ footer{{text-align:center;color:#94a3b8;font-size:12px;margin-top:40px}}
     html
 }
 
-fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}

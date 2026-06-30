@@ -4,30 +4,19 @@ use axum::http::StatusCode;
 use axum::response::{Html, Json};
 use futures_util::{SinkExt, StreamExt};
 use kylin_doctor_core::{
-    epoch_secs, llm::tools, Config, Detector, HardwareDetector, LlmProvider, Message as LlmMessage,
-    OllamaProvider, PerformanceDetector, ScanReport, SecurityDetector, SoftwareDetector,
-    SystemDetector,
+    epoch_secs, html_escape, llm::tools, Config, Detector, HardwareDetector, LlmProvider,
+    Message as LlmMessage, OllamaProvider, PerformanceDetector, ScanReport, SecurityDetector,
+    SoftwareDetector, SystemDetector,
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
 
 use crate::AppState;
 
-// ==================== 工具函数 ====================
-
-/// HTML 转义（防 XSS）
-fn html_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&#x27;")
-}
-
 // ==================== Detector 工厂 ====================
 
 /// 创建所有检测模块
-fn all_detectors() -> Vec<Box<dyn Detector>> {
+fn all_detectors() -> Vec<Box<dyn Detector + Send>> {
     vec![
         Box::new(SystemDetector::new()),
         Box::new(HardwareDetector::new()),
@@ -557,11 +546,11 @@ async fn stream_to_socket(
     (full, sender)
 }
 
-fn run_detectors(detectors: &[Box<dyn Detector>]) -> Vec<Value> {
+fn run_detectors(detectors: &[Box<dyn Detector + Send>]) -> Vec<Value> {
     detectors.iter().map(|d| run_single(&**d)).collect()
 }
 
-fn run_detectors_reports(detectors: &[Box<dyn Detector>]) -> Vec<ScanReport> {
+fn run_detectors_reports(detectors: &[Box<dyn Detector + Send>]) -> Vec<ScanReport> {
     detectors.iter().filter_map(|d| d.scan().ok()).collect()
 }
 
@@ -593,7 +582,9 @@ fn serialize_report(report: &ScanReport) -> Value {
                 "fix": f.fix.as_ref().map(|fix| json!({
                     "description": fix.description,
                     "command": fix.command,
-                    "risk_level": fix.risk_level
+                    "risk_level": fix.risk_level,
+                    "program": fix.program,
+                    "args": fix.args
                 })),
                 "auto_fixable": f.auto_fixable
             })

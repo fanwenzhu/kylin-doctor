@@ -36,7 +36,9 @@ impl AnthropicProvider {
     /// 构建请求头
     fn build_headers(&self) -> reqwest::header::HeaderMap {
         let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert("x-api-key", self.api_key.parse().unwrap());
+        if let Ok(val) = self.api_key.parse() {
+            headers.insert("x-api-key", val);
+        }
         headers.insert("anthropic-version", "2023-06-01".parse().unwrap());
         headers.insert("content-type", "application/json".parse().unwrap());
         headers
@@ -371,13 +373,21 @@ impl LlmProvider for AnthropicProvider {
 
         let mut full_response = String::new();
         let mut stream = response.bytes_stream();
+        let mut line_buffer = String::new();
+        let mut done = false;
 
         while let Some(chunk_result) = stream.next().await {
+            if done {
+                break;
+            }
             let chunk = chunk_result?;
-            let text = String::from_utf8_lossy(&chunk);
+            line_buffer.push_str(&String::from_utf8_lossy(&chunk));
 
-            for line in text.lines() {
-                let line = line.trim();
+            // 处理缓冲区中的完整行
+            while let Some(newline_pos) = line_buffer.find('\n') {
+                let line = line_buffer[..newline_pos].trim().to_string();
+                line_buffer = line_buffer[newline_pos + 1..].to_string();
+
                 if line.is_empty() || line.starts_with(':') {
                     continue;
                 }
@@ -387,8 +397,8 @@ impl LlmProvider for AnthropicProvider {
                     continue; // 事件类型行，我们通过 data 中的 type 字段判断
                 }
 
-                let json_str = if line.starts_with("data: ") {
-                    &line[6..]
+                let json_str = if let Some(s) = line.strip_prefix("data: ") {
+                    s
                 } else {
                     continue; // 跳过非 data 行
                 };
@@ -408,6 +418,7 @@ impl LlmProvider for AnthropicProvider {
                             }
                         }
                         "message_stop" => {
+                            done = true;
                             break;
                         }
                         _ => {} // message_start, content_block_start, content_block_stop 等忽略
