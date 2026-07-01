@@ -92,6 +92,65 @@ curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/unins
 
 ---
 
+## deb 包安装（推荐生产环境）
+
+deb 包采用 musl 静态编译，无 glibc 依赖，可在任何 Linux 系统运行。
+
+### 下载 deb 包
+
+从 GitHub Release 下载：https://github.com/fanwenzhu/kylin-doctor/releases
+
+| 架构 | 文件名 | 说明 |
+|------|--------|------|
+| amd64 | `kylin-doctor_*_amd64.deb` | x86_64 架构 |
+| arm64 | `kylin-doctor_*_arm64.deb` | ARM64 架构（飞腾、鲲鹏等） |
+
+### 安装
+
+```bash
+# 安装 deb 包
+sudo dpkg -i kylin-doctor_*_amd64.deb
+
+# 如果依赖缺失，自动修复
+sudo apt --fix-broken install
+```
+
+### 卸载
+
+```bash
+sudo dpkg -r kylin-doctor
+```
+
+### 验证安装
+
+```bash
+# 检查版本
+kylin-doctor --version
+
+# 检查二进制文件
+which kylin-doctor
+which kylin-doctor-web
+
+# 检查静态链接（无 glibc 依赖）
+file /usr/bin/kylin-doctor
+ldd /usr/bin/kylin-doctor 2>&1 || echo "静态链接 - 无动态依赖"
+```
+
+### 配置文件
+
+deb 包安装后，配置文件位于 `/usr/share/kylin-doctor/config.toml.example`。
+
+```bash
+# 复制配置文件到用户目录
+mkdir -p ~/.kylin-doctor
+cp /usr/share/kylin-doctor/config.toml.example ~/.kylin-doctor/config.toml
+
+# 编辑配置文件
+vim ~/.kylin-doctor/config.toml
+```
+
+---
+
 ## 从源码构建
 
 ### 1. 安装 Rust 工具链
@@ -307,7 +366,7 @@ kylin-doctor-web
 
 ### 方式三：systemd 服务
 
-创建 `/etc/systemd/system/kylin-doctor-web.service`：
+deb 包安装后会自动创建 systemd 服务文件。手动创建时，创建 `/etc/systemd/system/kylin-doctor-web.service`：
 
 ```ini
 [Unit]
@@ -316,16 +375,24 @@ After=network.target
 
 [Service]
 Type=simple
+# 运行用户（建议修改为实际用户，如 kylin、admin 等）
 User=root
-ExecStart=/usr/local/bin/kylin-doctor-web
+ExecStart=/usr/bin/kylin-doctor-web
 Environment=HOST=0.0.0.0
 Environment=PORT=8080
+# 配置文件目录（重要！解决 systemd 以 root 运行时配置路径问题）
+# 安装后请修改为实际用户目录，如 /home/kylin
+# Environment=KYLIN_HOME=/home/kylin
+# 云端 API Key（如果 config.toml 中未直接配置 api_key）
+# Environment=ANTHROPIC_AUTH_TOKEN=your-token-here
 Restart=on-failure
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+**重要提示（v0.4.0+）**：如果 systemd 服务以 root 用户运行，配置文件路径会变为 `/root/.kylin-doctor/config.toml`，而非用户目录。必须设置 `KYLIN_HOME` 环境变量指向正确的用户目录。
 
 启用并启动：
 
@@ -337,8 +404,27 @@ sudo systemctl start kylin-doctor-web
 # 查看状态
 sudo systemctl status kylin-doctor-web
 
-# 查看日志
+# 查看日志（包含配置文件路径和 LLM 策略）
 sudo journalctl -u kylin-doctor-web -f
+```
+
+**配置 systemd 服务（推荐）**：
+
+```bash
+# 编辑 service 文件
+sudo systemctl edit kylin-doctor-web
+
+# 添加以下内容：
+[Service]
+Environment=KYLIN_HOME=/home/你的用户名
+Environment=ANTHROPIC_AUTH_TOKEN=你的API密钥
+
+# 重启服务
+sudo systemctl restart kylin-doctor-web
+
+# 验证配置
+sudo journalctl -u kylin-doctor-web | grep "配置文件路径"
+sudo journalctl -u kylin-doctor-web | grep "LLM 策略"
 ```
 
 ### 访问仪表盘
@@ -771,6 +857,70 @@ sudo ufw allow 8080/tcp
 
 # 检查 SELinux（如果有）
 sudo setsebool -P httpd_can_network_connect 1
+```
+
+### AI 助手提示"本地 Ollama 服务不可用"
+
+**问题原因**：配置文件不存在或 strategy="local"，而本地 Ollama 没有启动。
+
+**排查步骤**：
+
+```bash
+# 1. 检查配置文件是否存在
+ls -la ~/.kylin-doctor/config.toml
+
+# 2. 如果使用 systemd 服务，检查配置文件路径
+sudo journalctl -u kylin-doctor-web | grep "配置文件路径"
+
+# 3. 检查 LLM 策略
+sudo journalctl -u kylin-doctor-web | grep "LLM 策略"
+
+# 4. 检查环境变量
+echo $KYLIN_HOME
+echo $ANTHROPIC_AUTH_TOKEN
+```
+
+**解决方案**：
+
+```bash
+# 方法1：创建配置文件
+mkdir -p ~/.kylin-doctor
+cat > ~/.kylin-doctor/config.toml << 'EOF'
+[llm]
+strategy = "hybrid"
+
+[llm.cloud]
+provider = "anthropic"
+model = "claude-sonnet-4-20250514"
+api_key_env = "ANTHROPIC_AUTH_TOKEN"
+endpoint = "https://api.anthropic.com"
+EOF
+
+# 方法2：配置 systemd 服务（如果使用 systemd）
+sudo systemctl edit kylin-doctor-web
+# 添加：
+# [Service]
+# Environment=KYLIN_HOME=/home/你的用户名
+# Environment=ANTHROPIC_AUTH_TOKEN=你的API密钥
+
+sudo systemctl restart kylin-doctor-web
+```
+
+### Web 仪表盘版本号显示旧版本
+
+**问题原因**：deb 包未更新到最新版本。
+
+**解决方案**：
+
+```bash
+# 卸载旧版本
+sudo dpkg -r kylin-doctor
+
+# 安装新版本
+sudo dpkg -i kylin-doctor_*_amd64.deb
+
+# 重启服务
+sudo systemctl restart kylin-doctor-web
 ```
 
 ### 检测结果为空
