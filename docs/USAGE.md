@@ -413,11 +413,13 @@ endpoint = "https://api.anthropic.com"
 | 供应商 | 协议 | provider 值 | 流式输出 | Function Calling |
 |--------|------|-------------|----------|-----------------|
 | Ollama 本地 | Ollama API | — | ✅ | ✅ |
-| 通义千问 | OpenAI 兼容 | `qwen` | ❌ | ❌ |
-| DeepSeek | OpenAI 兼容 | `deepseek` | ❌ | ❌ |
-| 月之暗面 | OpenAI 兼容 | `moonshot` | ❌ | ❌ |
+| 通义千问 | OpenAI 兼容 | `qwen` | ✅ | ✅ |
+| DeepSeek | OpenAI 兼容 | `deepseek` | ✅ | ✅ |
+| 月之暗面 | OpenAI 兼容 | `moonshot` | ✅ | ✅ |
 | Anthropic Claude | Messages API | `anthropic` | ✅ | ✅ |
-| 自定义 | OpenAI 兼容 | `custom` | ❌ | ❌ |
+| 自定义 | OpenAI 兼容 | `custom` | ✅ | ✅ |
+
+> **v0.3.4+ 更新**：所有 OpenAI 兼容供应商现已支持流式输出和 Function Calling。
 
 **交互模式命令：**
 
@@ -565,6 +567,73 @@ kylin-doctor serve --port 9090
 kylin-doctor serve --host 0.0.0.0 --port 8080
 ```
 
+### systemd 服务配置（生产环境推荐）
+
+deb 包安装后会自动创建 systemd 服务文件 `/etc/systemd/system/kylin-doctor-web.service`。
+
+**启动服务：**
+
+```bash
+# 启用并启动服务
+sudo systemctl enable --now kylin-doctor-web
+
+# 查看服务状态
+sudo systemctl status kylin-doctor-web
+
+# 查看日志
+sudo journalctl -u kylin-doctor-web -f
+```
+
+**配置文件路径问题（v0.4.0 修复）：**
+
+如果 systemd 服务以 root 用户运行，配置文件路径会变为 `/root/.kylin-doctor/config.toml`，而非用户目录。解决方法：
+
+**方法1：设置 KYLIN_HOME 环境变量（推荐）**
+
+```bash
+sudo systemctl edit kylin-doctor-web
+```
+
+添加以下内容：
+
+```ini
+[Service]
+Environment=KYLIN_HOME=/home/你的用户名
+Environment=ANTHROPIC_AUTH_TOKEN=你的API密钥
+```
+
+**方法2：修改 service 文件**
+
+```bash
+sudo vim /etc/systemd/system/kylin-doctor-web.service
+```
+
+修改以下内容：
+
+```ini
+[Service]
+User=你的用户名
+Environment=KYLIN_HOME=/home/你的用户名
+Environment=ANTHROPIC_AUTH_TOKEN=你的API密钥
+```
+
+然后重启服务：
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart kylin-doctor-web
+```
+
+**验证配置：**
+
+```bash
+# 查看配置文件路径
+sudo journalctl -u kylin-doctor-web | grep "配置文件路径"
+
+# 查看 LLM 策略
+sudo journalctl -u kylin-doctor-web | grep "LLM 策略"
+```
+
 ---
 
 ## Web 仪表盘使用
@@ -626,6 +695,20 @@ kylin-doctor serve --host 0.0.0.0 --port 8080
 - 输入 `/scan` 触发扫描
 - 显示工具调用过程（黄色 spinner + 折叠结果）
 - 支持 Markdown 渲染（代码块、表格、列表、引用等）
+- **thinking 状态消息**（v0.4.0+）：AI 思考时显示"正在思考..."
+- **消息速率限制**（v0.4.0+）：10 条/10 秒，防止消息洪水
+
+**配置文件说明：**
+
+AI 助手使用云端模型需要配置文件 `~/.kylin-doctor/config.toml`。如果使用 systemd 服务，需要设置 `KYLIN_HOME` 环境变量（参见上方 [systemd 服务配置](#systemd-服务配置生产环境推荐)）。
+
+**常见问题：**
+
+| 问题 | 原因 | 解决方法 |
+|------|------|----------|
+| "本地 Ollama 服务不可用" | 配置文件不存在或 strategy="local" | 创建配置文件，设置 strategy="hybrid" 或 "cloud" |
+| "LLM 服务不可用" | API Key 未配置或网络不通 | 检查 config.toml 中的 api_key 或 api_key_env |
+| "消息发送过于频繁" | 触发速率限制 | 等待 10 秒后重试 |
 
 ---
 
