@@ -95,7 +95,7 @@ def main():
 
     version_info = doc.add_paragraph()
     version_info.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = version_info.add_run('版本: v0.3.3 | 语言: Rust | 协议: MIT')
+    run = version_info.add_run('版本: v0.3.5 | 语言: Rust | 协议: MIT')
     run.font.size = Pt(11)
     run.font.color.rgb = RGBColor(0x94, 0xa3, 0xb8)
 
@@ -142,12 +142,12 @@ def main():
     add_table_with_style(doc,
         ['指标', '数值'],
         [
-            ['总代码量', '10,628 行'],
-            ['Rust 代码', '10,044 行'],
+            ['总代码量', '10,907 行'],
+            ['Rust 代码', '10,907 行'],
             ['检测模块', '5 大模块，49 项检查'],
             ['支持的 AI 模型', '3 种（Ollama/OpenAI/Anthropic）'],
-            ['支持架构', 'amd64 + arm64'],
-            ['当前版本', 'v0.3.3'],
+            ['支持架构', 'amd64 + arm64（均为 musl 静态编译）'],
+            ['当前版本', 'v0.3.5'],
         ]
     )
 
@@ -435,7 +435,8 @@ def main():
         {
             'title': '📦 静态编译 (musl)',
             'desc': '使用 musl 静态编译，彻底消除 glibc 版本依赖。'
-                    '即使是低版本 glibc 的工控机也能直接运行。'
+                    'amd64 和 arm64 双架构均为静态链接（arm64 使用 cross 工具进行交叉编译），'
+                    '可在任何 Linux 系统运行，包括低版本 glibc 的工控机。'
         },
         {
             'title': '⏱️ 命令超时保护',
@@ -459,7 +460,7 @@ def main():
         },
         {
             'title': '🎨 单文件前端',
-            'desc': 'Web 仪表盘是单个 HTML 文件（584 行），'
+            'desc': 'Web 仪表盘是单个 HTML 文件（587 行），'
                     'CSS + JS 全部内嵌，零外部依赖。'
                     '暗色主题，ECharts 图表，响应式设计。'
         },
@@ -486,6 +487,7 @@ def main():
     add_table_with_style(doc,
         ['版本', '日期', '主要变更'],
         [
+            ['v0.3.5', '2026-07-01', 'arm64 musl 静态编译完成（使用 cross 工具），双架构 deb 包均为静态链接'],
             ['v0.3.3', '2026-06-29', '修复 CPU 实时显示、修复 iowait 计算逻辑'],
             ['v0.3.2', '2026-06-27', '修复 CPU 显示 0%、支持 musl 静态编译'],
             ['v0.3.1', '2026-06-23', '配置文件直接写入 API Key、外部命令超时保护'],

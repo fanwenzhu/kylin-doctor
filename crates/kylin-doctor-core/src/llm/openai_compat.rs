@@ -18,7 +18,11 @@ impl OpenAiCompatProvider {
             endpoint: endpoint.trim_end_matches('/').to_string(),
             model: model.to_string(),
             api_key: api_key.to_string(),
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(120))
+                .build()
+                .expect("Failed to create HTTP client"),
         }
     }
 

@@ -110,16 +110,28 @@ if [[ "$SKIP_BUILD" == false ]]; then
     if [[ "$STATIC" == true ]]; then
         log_info "静态编译 release 版本 ($CARGO_TARGET)..."
 
-        # 检查 musl-gcc
-        if ! which musl-gcc >/dev/null 2>&1; then
-            log_err "找不到 musl-gcc"
-            log_err "安装: sudo apt install musl-tools (Debian) 或 sudo dnf install musl-devel (RHEL)"
-            log_err "或从源码编译: https://musl.libc.org/"
-            exit 1
-        fi
-
         export RUSTFLAGS='-C target-feature=+crt-static'
-        cargo build --release --target "$CARGO_TARGET" 2>&1
+
+        # 判断是否需要交叉编译
+        if [[ "$HOST_ARCH" == "x86_64" && "$ARCH" == "arm64" ]]; then
+            # x86_64 -> aarch64 musl 交叉编译，使用 cross
+            if ! which cross >/dev/null 2>&1; then
+                log_err "找不到 cross 工具"
+                log_err "安装: cargo install cross"
+                exit 1
+            fi
+            log_info "使用 cross 进行 aarch64 musl 交叉编译..."
+            cross build --release --target "$CARGO_TARGET" 2>&1
+        else
+            # 本机 musl 编译，检查 musl-gcc
+            if ! which musl-gcc >/dev/null 2>&1; then
+                log_err "找不到 musl-gcc"
+                log_err "安装: sudo apt install musl-tools (Debian) 或 sudo dnf install musl-devel (RHEL)"
+                log_err "或从源码编译: https://musl.libc.org/"
+                exit 1
+            fi
+            cargo build --release --target "$CARGO_TARGET" 2>&1
+        fi
     elif [[ "$CROSS" == true ]]; then
         log_info "交叉编译 release 版本 ($CARGO_TARGET)..."
 

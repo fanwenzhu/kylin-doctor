@@ -1,4 +1,5 @@
 use super::provider::{FunctionCall, LlmProvider, Message, ToolCall, ToolDefinition};
+use crate::util::sanitize_api_error;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use futures_util::StreamExt;
@@ -17,7 +18,11 @@ impl OllamaProvider {
             endpoint: endpoint.trim_end_matches('/').to_string(),
             model: model.to_string(),
             embedding_model: "nomic-embed-text".to_string(),
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(120))
+                .build()
+                .expect("Failed to create HTTP client"),
         }
     }
 
@@ -122,7 +127,7 @@ impl LlmProvider for OllamaProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Ollama API 错误 ({}): {}", status, body);
+            anyhow::bail!("Ollama API 错误 ({}): {}", status, sanitize_api_error(&body));
         }
 
         let chat_response: OllamaChatResponse = response.json().await?;
@@ -178,7 +183,7 @@ impl LlmProvider for OllamaProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Ollama API 错误 ({}): {}", status, body);
+            anyhow::bail!("Ollama API 错误 ({}): {}", status, sanitize_api_error(&body));
         }
 
         let chat_response: OllamaChatResponse = response.json().await?;
@@ -287,7 +292,7 @@ impl OllamaProvider {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("Ollama API 错误 ({}): {}", status, body);
+            anyhow::bail!("Ollama API 错误 ({}): {}", status, sanitize_api_error(&body));
         }
 
         let mut full_response = String::new();

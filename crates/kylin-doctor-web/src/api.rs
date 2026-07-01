@@ -1,17 +1,122 @@
 use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, Json};
 use futures_util::{SinkExt, StreamExt};
 use kylin_doctor_core::{
-    epoch_secs, html_escape, llm::tools, Config, Detector, HardwareDetector, LlmProvider,
-    Message as LlmMessage, OllamaProvider, PerformanceDetector, ScanReport, SecurityDetector,
-    SoftwareDetector, SystemDetector,
+    epoch_secs, html_escape, llm::tools, AnthropicProvider, Config, Detector, Finding,
+    HardwareDetector, LlmProvider, Message as LlmMessage, OllamaProvider, OpenAiCompatProvider,
+    PerformanceDetector, ScanReport, SecurityDetector, Severity, SoftwareDetector, SystemDetector,
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
 
 use crate::AppState;
+
+// ==================== LLM Provider 工厂 ====================
+
+/// 创建云端 LLM 提供商
+fn create_cloud_provider(config: &Config) -> Result<Box<dyn LlmProvider>, String> {
+    let cloud = &config.llm.cloud;
+
+    // 解析 API Key
+    let api_key = cloud.resolve_api_key().map_err(|e| {
+        format!("云端模型 API Key 配置错误: {}", e)
+    })?;
+
+    // 验证 endpoint
+    if cloud.endpoint.is_empty() {
+        return Err("云端模型 endpoint 未配置，请在 ~/.kylin-doctor/config.toml 中设置 [llm.cloud] endpoint".to_string());
+    }
+
+    match cloud.provider.as_str() {
+        "anthropic" => {
+            let p = AnthropicProvider::new(&cloud.endpoint, &cloud.model, &api_key);
+            Ok(Box::new(p))
+        }
+        "openai" | "qwen" | "deepseek" | "moonshot" | "custom" => {
+            let p = OpenAiCompatProvider::new(&cloud.endpoint, &cloud.model, &api_key);
+            Ok(Box::new(p))
+        }
+        other => {
+            Err(format!("未知的云端 provider: '{}'，支持: openai/qwen/deepseek/moonshot/anthropic/custom", other))
+        }
+    }
+}
+
+/// 创建 LLM 提供商（hybrid 模式：优先本地，回退云端）
+async fn create_provider(config: &Config) -> Result<Box<dyn LlmProvider>, String> {
+    let strategy = config.llm.strategy.as_str();
+
+    match strategy {
+        "cloud" => {
+            // 纯云端模式：云端不可用则报错
+            create_cloud_provider(config)
+        }
+        "local" => {
+            // 纯本地模式
+            let local = OllamaProvider::new(&config.llm.local.endpoint, &config.llm.local.model);
+            if local.is_available().await {
+                Ok(Box::new(local))
+            } else {
+                Err(format!("本地 Ollama 服务不可用 (endpoint: {})", config.llm.local.endpoint))
+            }
+        }
+        "hybrid" | _ => {
+            // hybrid 模式：优先本地，回退云端
+            let local = OllamaProvider::new(&config.llm.local.endpoint, &config.llm.local.model);
+            if local.is_available().await {
+                return Ok(Box::new(local));
+            }
+
+            // 本地不可用，尝试云端
+            match create_cloud_provider(config) {
+                Ok(provider) => Ok(provider),
+                Err(cloud_err) => {
+                    // 云端也不可用，给出完整诊断
+                    Err(format!(
+                        "LLM 服务不可用：\n  - 本地 Ollama: 不可达 ({})\n  - 云端模型: {}\n\n\
+                         请检查：\n  1. Ollama 是否已启动: systemctl status ollama\n  2. 云端 API Key 是否配置: ~/.kylin-doctor/config.toml",
+                        config.llm.local.endpoint, cloud_err
+                    ))
+                }
+            }
+        }
+    }
+}
+
+// ==================== WebSocket 安全 ====================
+
+/// 检查 WebSocket Origin header，防止 Cross-Site WebSocket Hijacking
+fn check_origin(headers: &HeaderMap) -> bool {
+    // 如果没有 Origin header（非浏览器客户端），允许连接
+    let origin = match headers.get("origin") {
+        Some(v) => v.to_str().unwrap_or(""),
+        None => return true,
+    };
+
+    // 允许的 Origin 列表
+    let allowed_origins = [
+        "http://127.0.0.1",
+        "http://localhost",
+        "https://127.0.0.1",
+        "https://localhost",
+    ];
+
+    // 检查 Origin 是否在白名单中
+    for allowed in &allowed_origins {
+        if origin.starts_with(allowed) {
+            return true;
+        }
+    }
+
+    // 开发模式：允许所有 Origin（生产环境应移除）
+    if cfg!(debug_assertions) {
+        return true;
+    }
+
+    false
+}
 
 // ==================== Detector 工厂 ====================
 
@@ -250,7 +355,17 @@ footer{{text-align:center;color:#94a3b8;font-size:12px;margin-top:40px}}
 // ==================== WebSocket ====================
 
 /// WebSocket 扫描处理（实时推送进度）
-pub async fn ws_scan_handler(ws: WebSocketUpgrade) -> axum::response::Response {
+pub async fn ws_scan_handler(
+    headers: HeaderMap,
+    ws: WebSocketUpgrade,
+) -> axum::response::Response {
+    // Origin 校验：防止 Cross-Site WebSocket Hijacking
+    if !check_origin(&headers) {
+        return axum::response::Response::builder()
+            .status(StatusCode::FORBIDDEN)
+            .body("Origin not allowed".into())
+            .unwrap();
+    }
     ws.on_upgrade(handle_ws_scan)
 }
 
@@ -297,7 +412,17 @@ async fn handle_ws_scan(mut socket: WebSocket) {
 }
 
 /// WebSocket AI 对话处理
-pub async fn ws_chat_handler(ws: WebSocketUpgrade) -> axum::response::Response {
+pub async fn ws_chat_handler(
+    headers: HeaderMap,
+    ws: WebSocketUpgrade,
+) -> axum::response::Response {
+    // Origin 校验：防止 Cross-Site WebSocket Hijacking
+    if !check_origin(&headers) {
+        return axum::response::Response::builder()
+            .status(StatusCode::FORBIDDEN)
+            .body("Origin not allowed".into())
+            .unwrap();
+    }
     ws.on_upgrade(handle_ws_chat)
 }
 
@@ -305,19 +430,17 @@ async fn handle_ws_chat(socket: WebSocket) {
     let (mut sender, mut receiver) = socket.split();
 
     let config = Config::load();
-    let provider = OllamaProvider::new(&config.llm.local.endpoint, &config.llm.local.model);
-
-    // 检查可用性
-    if !provider.is_available().await {
-        let _ = sender
-            .send(WsMessage::Text(
-                json!({"type":"error","message":"LLM 服务不可用，请启动 Ollama"})
-                    .to_string()
-                    .into(),
-            ))
-            .await;
-        return;
-    }
+    let provider = match create_provider(&config).await {
+        Ok(p) => p,
+        Err(e) => {
+            let _ = sender
+                .send(WsMessage::Text(
+                    json!({"type":"error","message":e}).to_string().into(),
+                ))
+                .await;
+            return;
+        }
+    };
 
     let system_prompt = "你是银河麒麟桌面系统的 AI 诊断助手。简洁回答用户问题，优先给出可执行的命令。";
     let mut messages: Vec<LlmMessage> = vec![LlmMessage::system(system_prompt)];
@@ -326,11 +449,22 @@ async fn handle_ws_chat(socket: WebSocket) {
     const MAX_CHAT_MESSAGES: usize = 50;
 
     /// 裁剪聊天历史，保留 system prompt + 最近的消息
+    /// 确保裁剪后首条非 system 消息为 user 角色（LLM API 要求 user/assistant 交替）
     fn trim_messages(messages: &mut Vec<LlmMessage>) {
         if messages.len() > MAX_CHAT_MESSAGES {
             let system = messages.remove(0);
             let drain_count = messages.len() - (MAX_CHAT_MESSAGES - 1);
             messages.drain(0..drain_count);
+
+            // 确保首条非 system 消息为 user 角色
+            // 如果首条是 assistant 或 tool，删除它以保持 user/assistant 交替
+            while let Some(first) = messages.first() {
+                if first.role == "user" || first.role == "system" {
+                    break;
+                }
+                messages.remove(0);
+            }
+
             messages.insert(0, system);
         }
     }
@@ -340,6 +474,11 @@ async fn handle_ws_chat(socket: WebSocket) {
             json!({"type":"ready","model":provider.name()}).to_string().into(),
         ))
         .await;
+
+    // 速率限制状态
+    let mut message_timestamps: Vec<std::time::Instant> = Vec::new();
+    const RATE_LIMIT_WINDOW: std::time::Duration = std::time::Duration::from_secs(10);
+    const MAX_MESSAGES_PER_WINDOW: usize = 10;
 
     while let Some(Ok(msg)) = receiver.next().await {
         match msg {
@@ -357,10 +496,27 @@ async fn handle_ws_chat(socket: WebSocket) {
                     continue;
                 }
 
-                // 快捷命令
+                // 速率限制（防止消息洪水攻击）
+                let now = std::time::Instant::now();
+                message_timestamps.retain(|t| now.duration_since(*t) < RATE_LIMIT_WINDOW);
+                if message_timestamps.len() >= MAX_MESSAGES_PER_WINDOW {
+                    let _ = sender
+                        .send(WsMessage::Text(
+                            json!({"type":"error","message":"消息发送过于频繁，请稍后再试"}).to_string().into(),
+                        ))
+                        .await;
+                    continue;
+                }
+                message_timestamps.push(now);
+
+                // 快捷命令（使用 spawn_blocking 避免阻塞 async 上下文）
                 if user_input == "/scan" || user_input == "/扫描" {
-                    match tools::execute_tool("scan_all") {
-                        Ok(result) => {
+                    let scan_result = tokio::task::spawn_blocking(|| {
+                        tools::execute_tool("scan_all")
+                    }).await;
+
+                    match scan_result {
+                        Ok(Ok(result)) => {
                             let _ = sender
                                 .send(WsMessage::Text(
                                     json!({"type":"tool_result","content":result})
@@ -369,10 +525,19 @@ async fn handle_ws_chat(socket: WebSocket) {
                                 ))
                                 .await;
                         }
-                        Err(e) => {
+                        Ok(Err(e)) => {
                             let _ = sender
                                 .send(WsMessage::Text(
                                     json!({"type":"error","message":e.to_string()})
+                                        .to_string()
+                                        .into(),
+                                ))
+                                .await;
+                        }
+                        Err(e) => {
+                            let _ = sender
+                                .send(WsMessage::Text(
+                                    json!({"type":"error","message":format!("扫描任务执行失败: {}", e)})
                                         .to_string()
                                         .into(),
                                 ))
@@ -385,10 +550,24 @@ async fn handle_ws_chat(socket: WebSocket) {
                 messages.push(LlmMessage::user(&user_input));
                 trim_messages(&mut messages);
 
-                // 带工具的对话
+                // 发送 thinking 状态，让用户知道正在处理
+                let _ = sender
+                    .send(WsMessage::Text(
+                        json!({"type":"thinking","message":"正在思考..."}).to_string().into(),
+                    ))
+                    .await;
+
+                // 带工具的对话（使用 select! 监听 WebSocket close）
                 let tools_def = tools::get_tool_definitions();
-                match provider.chat_with_tools(&messages, &tools_def).await {
-                    Ok(response) => {
+                let chat_future = provider.chat_with_tools(&messages, &tools_def);
+                let ws_close_future = receiver.next();
+
+                match tokio::select! {
+                    result = chat_future => Some(result),
+                    _ = ws_close_future => None,
+                } {
+                    Some(Ok(response)) => {
+                        // 正常响应
                         if let Some(ref tool_calls) = response.tool_calls {
                             messages.push(response.clone());
                             for tc in tool_calls {
@@ -400,26 +579,37 @@ async fn handle_ws_chat(socket: WebSocket) {
                                     ))
                                     .await;
 
-                                let tool_result = if tools::is_valid_tool(&tc.function.name) {
-                                        tools::execute_tool(&tc.function.name)
-                                    } else {
-                                        Ok("未知工具，已拒绝执行".to_string())
-                                    };
+                                // 使用 spawn_blocking 执行同步工具调用
+                                let tool_name = tc.function.name.clone();
+                                let tool_result = if tools::is_valid_tool(&tool_name) {
+                                    tokio::task::spawn_blocking(move || {
+                                        tools::execute_tool(&tool_name)
+                                    }).await
+                                } else {
+                                    Ok(Ok("未知工具，已拒绝执行".to_string()))
+                                };
+
                                 match tool_result {
-                                    Ok(result) => {
+                                    Ok(Ok(result)) => {
                                         messages
                                             .push(LlmMessage::tool_result(&tc.id, &result));
                                     }
-                                    Err(e) => {
+                                    Ok(Err(e)) => {
                                         messages.push(LlmMessage::tool_result(
                                             &tc.id,
                                             &format!("工具执行失败: {}", e),
                                         ));
                                     }
+                                    Err(e) => {
+                                        messages.push(LlmMessage::tool_result(
+                                            &tc.id,
+                                            &format!("工具任务执行失败: {}", e),
+                                        ));
+                                    }
                                 }
                             }
                             // 让 LLM 流式生成最终回答
-                            let (result, returned_sender) = stream_to_socket(&provider, &messages, sender).await;
+                            let (result, returned_sender) = stream_to_socket(&*provider, &messages, sender).await;
                             sender = returned_sender;
                             match result {
                                 Ok(final_response) => {
@@ -437,7 +627,7 @@ async fn handle_ws_chat(socket: WebSocket) {
                             }
                         } else {
                             // 无工具调用，用 chat_stream 流式输出
-                            let (result, returned_sender) = stream_to_socket(&provider, &messages, sender).await;
+                            let (result, returned_sender) = stream_to_socket(&*provider, &messages, sender).await;
                             sender = returned_sender;
                             match result {
                                 Ok(text) => {
@@ -458,7 +648,8 @@ async fn handle_ws_chat(socket: WebSocket) {
                             }
                         }
                     }
-                    Err(e) => {
+                    Some(Err(e)) => {
+                        // API 调用失败
                         let _ = sender
                             .send(WsMessage::Text(
                                 json!({"type":"error","message":e.to_string()})
@@ -466,6 +657,10 @@ async fn handle_ws_chat(socket: WebSocket) {
                                     .into(),
                             ))
                             .await;
+                    }
+                    None => {
+                        // WebSocket 连接已关闭
+                        return;
                     }
                 }
             }
@@ -481,7 +676,7 @@ async fn handle_ws_chat(socket: WebSocket) {
 /// 使用 std::sync::mpsc 桥接 chat_stream 的同步回调和异步 WebSocket 发送
 /// sender 通过 channel 转移给 drain_task，函数结束后归还
 async fn stream_to_socket(
-    provider: &OllamaProvider,
+    provider: &dyn LlmProvider,
     messages: &[LlmMessage],
     sender: futures_util::stream::SplitSink<WebSocket, WsMessage>,
 ) -> (anyhow::Result<String>, futures_util::stream::SplitSink<WebSocket, WsMessage>) {
@@ -551,7 +746,26 @@ fn run_detectors(detectors: &[Box<dyn Detector + Send>]) -> Vec<Value> {
 }
 
 fn run_detectors_reports(detectors: &[Box<dyn Detector + Send>]) -> Vec<ScanReport> {
-    detectors.iter().filter_map(|d| d.scan().ok()).collect()
+    detectors
+        .iter()
+        .map(|d| {
+            d.scan().unwrap_or_else(|e| {
+                // 扫描失败时创建一个包含错误信息的报告
+                let mut report = ScanReport::new(d.name().to_string());
+                report.findings.push(Finding {
+                    id: "scan_error".to_string(),
+                    module: d.name().to_string(),
+                    title: "扫描失败".to_string(),
+                    description: e.to_string(),
+                    severity: Severity::Critical,
+                    fix: None,
+                    auto_fixable: false,
+                    evidence: String::new(),
+                });
+                report
+            })
+        })
+        .collect()
 }
 
 fn run_single(detector: &dyn Detector) -> Value {

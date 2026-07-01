@@ -64,7 +64,7 @@ pub struct LocalLlmConfig {
 }
 
 /// 云端 LLM 配置
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct CloudLlmConfig {
     /// 供应商: qwen / deepseek / moonshot / anthropic / custom
     #[serde(default = "default_cloud_provider")]
@@ -79,6 +79,18 @@ pub struct CloudLlmConfig {
     pub api_key_env: String,
     #[serde(default)]
     pub endpoint: String,
+}
+
+impl std::fmt::Debug for CloudLlmConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CloudLlmConfig")
+            .field("provider", &self.provider)
+            .field("model", &self.model)
+            .field("api_key", &if self.api_key.is_empty() { "<empty>" } else { "***" })
+            .field("api_key_env", &self.api_key_env)
+            .field("endpoint", &self.endpoint)
+            .finish()
+    }
 }
 
 impl CloudLlmConfig {
@@ -217,6 +229,15 @@ impl Config {
         }
         let content = toml::to_string_pretty(self)?;
         std::fs::write(&config_path, content)?;
+
+        // 设置文件权限为 0600（仅所有者可读写）
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let permissions = std::fs::Permissions::from_mode(0o600);
+            std::fs::set_permissions(&config_path, permissions)?;
+        }
+
         Ok(())
     }
 

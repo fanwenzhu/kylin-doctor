@@ -18,7 +18,11 @@ impl AnthropicProvider {
             endpoint: endpoint.trim_end_matches('/').to_string(),
             model: model.to_string(),
             api_key: api_key.to_string(),
-            client: reqwest::Client::new(),
+            client: reqwest::Client::builder()
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .timeout(std::time::Duration::from_secs(120))
+                .build()
+                .expect("Failed to create HTTP client"),
         }
     }
 
@@ -435,29 +439,21 @@ impl LlmProvider for AnthropicProvider {
     }
 
     async fn is_available(&self) -> bool {
-        // 发送一个最小请求测试连通性
-        let request = AnthropicChatRequest {
-            model: self.model.clone(),
-            max_tokens: 1,
-            system: String::new(),
-            messages: vec![AnthropicMessage {
-                role: "user".to_string(),
-                content: AnthropicContent::Text("hi".to_string()),
-            }],
-            tools: None,
-            stream: false,
-        };
-
+        // 只检查 HTTP 连通性，不发送推理请求（避免消耗 API 额度）
         let url = format!("{}/v1/messages", self.endpoint);
         match self
             .client
-            .post(&url)
+            .get(&url)
             .headers(self.build_headers())
-            .json(&request)
             .send()
             .await
         {
-            Ok(resp) => resp.status().is_success(),
+            Ok(resp) => {
+                // Anthropic API 对 GET 请求会返回 405 Method Not Allowed 或 401 Unauthorized
+                // 只要能连通就认为可用（401 表示连通但 key 错误，405 表示连通但方法不对）
+                let status = resp.status();
+                status == 405 || status == 401 || status.is_success()
+            }
             Err(_) => false,
         }
     }

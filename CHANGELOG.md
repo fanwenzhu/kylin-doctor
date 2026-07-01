@@ -5,6 +5,36 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.4.0] - 2026-07-01
+
+### 安全修复 (Security) — 多agent对抗审查
+- **HTTP 请求无超时保护**: 所有 LLM Provider 的 `reqwest::Client` 添加 `connect_timeout(10s)` + `timeout(120s)`，防止云端 API 无响应时 WebSocket 连接永久阻塞
+- **WebSocket 无 Origin 校验**: 添加 `check_origin()` 函数，校验 Origin header，防止 Cross-Site WebSocket Hijacking (CSWSH) 攻击
+- **配置文件权限未限制**: `Config::save()` 写入后设置文件权限为 0600（仅所有者可读写），防止明文 API Key 被其他用户读取
+- **Config Debug 泄露 API Key**: 为 `CloudLlmConfig` 实现自定义 `Debug` trait，日志中隐藏 api_key 字段（显示为 `***`）
+- **Ollama 错误信息未脱敏**: Ollama 的四处错误处理都添加了 `sanitize_api_error()`，防止敏感信息泄露
+
+### 修复 (Fixed) — 正确性
+- **Provider 创建逻辑缺陷**: `create_provider()` 改为返回 `Result<Box<dyn LlmProvider>, String>`，提供详细诊断信息（区分 Ollama 未启动、API Key 未配置、网络不通等）
+- **cloud 模式静默回退**: `strategy="cloud"` 时，云端不可用直接报错，不再静默回退到本地 Ollama
+- **Anthropic 可用性检查浪费资源**: `is_available()` 改为 GET 请求检查 HTTP 连通性，不再发送真实推理请求，节省 API 额度
+- **trim_messages 破坏 role 交替**: 裁剪后确保首条非 system 消息为 user 角色，保持 LLM API 要求的 user/assistant 交替
+- **run_detectors_reports 静默丢弃错误**: 扫描失败的模块现在会生成包含错误信息的报告，用户知道哪些模块未完成
+
+### 改进 (Improved) — 性能与用户体验
+- **消息速率限制**: 添加 10 条/10 秒的速率限制，防止消息洪水攻击
+- **API Key 撤销后连接断开**: 现在保持连接并发送详细错误消息，用户可切换配置重试
+- **chat_with_tools 阻塞无反馈**: 添加 `{"type":"thinking"}` 状态消息，使用 `tokio::select!` 监听 WebSocket close
+- **同步工具阻塞 async 上下文**: `tools::execute_tool()` 改用 `tokio::task::spawn_blocking()` 包装，避免阻塞 tokio worker 线程
+- **LLM 不可用诊断信息不清晰**: 提供详细的排障指引，分别诊断本地和云端不可用原因
+
+### 架构 (Architecture)
+- **AppState 扩展**: 新增 `llm_cache`（Provider 缓存）和 `active_connections`（连接计数器）字段
+- **未知 provider 名称校验**: `create_cloud_provider()` 现在明确拒绝未知的 provider 名称，不再静默当作 OpenAI 兼容处理
+
+### 测试 (Tests)
+- **测试覆盖保持 107**: 所有现有测试通过，无新增测试（本次主要是代码质量和安全性改进）
+
 ## [0.3.5] - 2026-06-30
 
 ### 修复 (Fixed) — 对抗性审查第二轮

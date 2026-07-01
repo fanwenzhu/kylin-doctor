@@ -16,7 +16,11 @@ async fn main() -> anyhow::Result<()> {
 
     // 后台 CPU 采样
     let cpu_state = spawn_cpu_sampler();
-    let app_state = Arc::new(AppState { cpu: cpu_state });
+    let app_state = Arc::new(AppState {
+        cpu: cpu_state,
+        llm_cache: Arc::new(std::sync::Mutex::new(None)),
+        active_connections: std::sync::atomic::AtomicUsize::new(0),
+    });
 
     let app = create_router(Some(app_state));
 

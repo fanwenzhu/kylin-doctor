@@ -3,7 +3,9 @@ pub mod api;
 use axum::response::Html;
 use axum::routing::get;
 use axum::Router;
+use kylin_doctor_core::{Config, LlmProvider};
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// 内嵌的仪表盘 HTML
 const DASHBOARD_HTML: &str = include_str!("dashboard.html");
@@ -11,6 +13,12 @@ const DASHBOARD_HTML: &str = include_str!("dashboard.html");
 /// CPU 采样数据
 pub struct CpuSample {
     pub usage_pct: f64,
+}
+
+/// LLM Provider 缓存
+pub struct LlmCache {
+    pub provider: Box<dyn LlmProvider>,
+    pub created_at: std::time::Instant,
 }
 
 /// 应用共享状态
@@ -22,7 +30,12 @@ pub struct CpuSample {
 /// 如果未来需要跨 await 持有锁，应改用 `tokio::sync::Mutex`。
 pub struct AppState {
     pub cpu: Arc<Mutex<CpuSample>>,
+    pub llm_cache: Arc<Mutex<Option<LlmCache>>>,
+    pub active_connections: AtomicUsize,
 }
+
+/// 最大并发 WebSocket 连接数
+pub const MAX_CONCURRENT_CONNECTIONS: usize = 10;
 
 /// 创建完整的 Web 路由（REST API + WebSocket + 前端页面）
 ///
@@ -32,6 +45,8 @@ pub fn create_router(app_state: Option<Arc<AppState>>) -> Router {
     let state = app_state.unwrap_or_else(|| {
         Arc::new(AppState {
             cpu: Arc::new(Mutex::new(CpuSample { usage_pct: 0.0 })),
+            llm_cache: Arc::new(Mutex::new(None)),
+            active_connections: AtomicUsize::new(0),
         })
     });
 
