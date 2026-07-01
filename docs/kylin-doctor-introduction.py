@@ -95,7 +95,7 @@ def main():
 
     version_info = doc.add_paragraph()
     version_info.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    run = version_info.add_run('版本: v0.3.5 | 语言: Rust | 协议: MIT')
+    run = version_info.add_run('版本: v0.4.0 | 语言: Rust | 协议: MIT')
     run.font.size = Pt(11)
     run.font.color.rgb = RGBColor(0x94, 0xa3, 0xb8)
 
@@ -142,12 +142,12 @@ def main():
     add_table_with_style(doc,
         ['指标', '数值'],
         [
-            ['总代码量', '10,907 行'],
-            ['Rust 代码', '10,907 行'],
+            ['总代码量', '11,177 行'],
+            ['Rust 代码', '11,177 行'],
             ['检测模块', '5 大模块，49 项检查'],
             ['支持的 AI 模型', '3 种（Ollama/OpenAI/Anthropic）'],
             ['支持架构', 'amd64 + arm64（均为 musl 静态编译）'],
-            ['当前版本', 'v0.3.5'],
+            ['当前版本', 'v0.4.0'],
         ]
     )
 
@@ -439,6 +439,22 @@ def main():
                     '可在任何 Linux 系统运行，包括低版本 glibc 的工控机。'
         },
         {
+            'title': '🔍 多agent对抗审查',
+            'desc': '采用多agent对抗审查机制进行代码质量保证。'
+                    '3个独立agent从不同角度（正确性、安全性、性能）并行审查，'
+                    '2个对抗验证agent尝试反驳每个结论，'
+                    '最终由裁决者综合所有发现给出修复建议。'
+                    'v0.4.0 版本通过此机制修复了 17 个问题。'
+        },
+        {
+            'title': '🛡️ 安全加固',
+            'desc': 'HTTP 请求超时保护（防止连接永久阻塞）、'
+                    'WebSocket Origin 校验（防止 CSWSH 攻击）、'
+                    '配置文件权限限制（0600，防止 API Key 泄露）、'
+                    'API Key 脱敏处理（日志中隐藏敏感信息）、'
+                    '消息速率限制（防止消息洪水攻击）。'
+        },
+        {
             'title': '⏱️ 命令超时保护',
             'desc': '所有外部命令（apt、snap、find 等）都有超时保护（默认 10 秒，apt 30 秒），'
                     '防止 apt 锁被占用时扫描卡死。'
@@ -446,7 +462,7 @@ def main():
         {
             'title': '🌐 WebSocket 实时通信',
             'desc': '扫描进度、AI 对话都通过 WebSocket 实时推送，'
-                    '用户体验流畅。'
+                    '用户体验流畅。支持流式输出、thinking 状态消息、自动重连。'
         },
         {
             'title': '📡 双层 Channel 流式桥接',
@@ -487,6 +503,7 @@ def main():
     add_table_with_style(doc,
         ['版本', '日期', '主要变更'],
         [
+            ['v0.4.0', '2026-07-01', '多agent对抗审查修复 — 安全加固、正确性提升、性能优化（17个问题修复）'],
             ['v0.3.5', '2026-07-01', 'arm64 musl 静态编译完成（使用 cross 工具），双架构 deb 包均为静态链接'],
             ['v0.3.3', '2026-06-29', '修复 CPU 实时显示、修复 iowait 计算逻辑'],
             ['v0.3.2', '2026-06-27', '修复 CPU 显示 0%、支持 musl 静态编译'],
