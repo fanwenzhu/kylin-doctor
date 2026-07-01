@@ -7,6 +7,10 @@ use std::sync::Arc;
 async fn main() -> anyhow::Result<()> {
     let config = Config::load();
 
+    // 打印配置加载信息（便于排查）
+    println!("📁 配置文件路径: {:?}", Config::config_path());
+    println!("📋 LLM 策略: {}", config.llm.strategy);
+
     // 优先使用环境变量，其次使用配置文件
     let host = std::env::var("HOST").unwrap_or_else(|_| config.web.host.clone());
     let port: u16 = std::env::var("PORT")
@@ -18,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
     let cpu_state = spawn_cpu_sampler();
     let app_state = Arc::new(AppState {
         cpu: cpu_state,
-        llm_cache: Arc::new(std::sync::Mutex::new(None)),
+        config: config.clone(),
         active_connections: std::sync::atomic::AtomicUsize::new(0),
     });
 

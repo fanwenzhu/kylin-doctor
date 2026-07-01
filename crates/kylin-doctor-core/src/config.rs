@@ -216,7 +216,18 @@ impl Config {
     }
 
     /// 配置文件路径: ~/.kylin-doctor/config.toml
+    ///
+    /// 优先级：
+    /// 1. KYLIN_HOME 环境变量（适用于 systemd 服务等场景）
+    /// 2. 系统 home 目录
+    /// 3. 当前目录（兜底）
     pub fn config_path() -> std::path::PathBuf {
+        // 优先检查 KYLIN_HOME 环境变量（适用于 systemd 服务）
+        if let Ok(kylin_home) = std::env::var("KYLIN_HOME") {
+            return std::path::PathBuf::from(kylin_home)
+                .join(".kylin-doctor")
+                .join("config.toml");
+        }
         let home = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
         home.join(".kylin-doctor").join("config.toml")
     }

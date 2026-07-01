@@ -4,10 +4,16 @@ After=network.target
 
 [Service]
 Type=simple
+# 运行用户（安装后请根据实际情况修改，如 kylin、admin 等）
 User=root
 ExecStart=/usr/bin/kylin-doctor-web
 Environment=HOST=0.0.0.0
 Environment=PORT=8080
+# 配置文件目录（优先级高于 dirs::home_dir()）
+# 安装后请修改为实际用户目录，如 /home/kylin
+# Environment=KYLIN_HOME=/home/kylin
+# 云端 API Key（如果 config.toml 中未直接配置 api_key）
+# Environment=ANTHROPIC_AUTH_TOKEN=your-token-here
 Restart=on-failure
 RestartSec=5
 

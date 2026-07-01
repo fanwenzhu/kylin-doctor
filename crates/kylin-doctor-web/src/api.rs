@@ -415,6 +415,7 @@ async fn handle_ws_scan(mut socket: WebSocket) {
 pub async fn ws_chat_handler(
     headers: HeaderMap,
     ws: WebSocketUpgrade,
+    State(state): State<Arc<AppState>>,
 ) -> axum::response::Response {
     // Origin 校验：防止 Cross-Site WebSocket Hijacking
     if !check_origin(&headers) {
@@ -423,14 +424,15 @@ pub async fn ws_chat_handler(
             .body("Origin not allowed".into())
             .unwrap();
     }
-    ws.on_upgrade(handle_ws_chat)
+    ws.on_upgrade(move |socket| handle_ws_chat(socket, state))
 }
 
-async fn handle_ws_chat(socket: WebSocket) {
+async fn handle_ws_chat(socket: WebSocket, state: Arc<AppState>) {
     let (mut sender, mut receiver) = socket.split();
 
-    let config = Config::load();
-    let provider = match create_provider(&config).await {
+    // 从共享状态获取配置（不再每次连接重读文件）
+    let config = &state.config;
+    let provider = match create_provider(config).await {
         Ok(p) => p,
         Err(e) => {
             let _ = sender
