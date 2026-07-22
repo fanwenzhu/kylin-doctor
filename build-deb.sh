@@ -33,10 +33,10 @@ while [[ $# -gt 0 ]]; do
         --skip-build) SKIP_BUILD=true; shift ;;
         --static)   STATIC=true; shift ;;
         -h|--help)
-            echo "用法: $0 [--arch amd64|arm64|loong64] [--skip-build] [--static]"
+            echo "用法: $0 [--arch amd64|arm64|loongarch64] [--skip-build] [--static]"
             echo ""
             echo "选项:"
-            echo "  --arch ARCH      指定目标架构 (amd64、arm64 或 loong64，默认自动检测)"
+            echo "  --arch ARCH      指定目标架构 (amd64、arm64 或 loongarch64，默认自动检测)"
             echo "  --skip-build     跳过编译，使用已有的二进制"
             echo "  --static         使用 musl 静态编译，消除 glibc 依赖"
             echo "  -h, --help       显示帮助"
@@ -45,7 +45,7 @@ while [[ $# -gt 0 ]]; do
             echo "  $0                          # 编译当前架构并打包"
             echo "  $0 --static                 # 静态编译当前架构并打包"
             echo "  $0 --arch arm64             # 交叉编译 arm64 并打包"
-            echo "  $0 --arch loong64           # 交叉编译龙芯 loongarch64 并打包（强制 musl 静态）"
+            echo "  $0 --arch loongarch64           # 交叉编译龙芯 loongarch64 并打包（强制 musl 静态）"
             echo "  $0 --arch amd64 --skip-build  # 跳过编译，直接打包"
             exit 0
             ;;
@@ -59,16 +59,16 @@ if [[ -z "$ARCH" ]]; then
     case "$HOST_ARCH" in
         x86_64)  ARCH="amd64" ;;
         aarch64) ARCH="arm64" ;;
-        loongarch64) ARCH="loong64" ;;
+        loongarch64) ARCH="loongarch64" ;;
         *) log_err "不支持的架构: $HOST_ARCH"; exit 1 ;;
     esac
 fi
 
-# loong64 (龙芯 LoongArch) 仅支持 musl 静态编译：
+# loongarch64 (龙芯 LoongArch) 仅支持 musl 静态编译：
 # TLS 用 rustls（依赖 ring，含 C/汇编），需要 zig 作交叉 C 编译器。
 # zig 自带 loongarch64-linux-musl 目标，无需专门装 loongarch64 交叉 gcc。
-if [[ "$ARCH" == "loong64" && "$STATIC" == false ]]; then
-    log_warn "loong64 强制使用 musl 静态编译，已自动开启 --static"
+if [[ "$ARCH" == "loongarch64" && "$STATIC" == false ]]; then
+    log_warn "loongarch64 强制使用 musl 静态编译，已自动开启 --static"
     STATIC=true
 fi
 
@@ -79,7 +79,7 @@ if [[ "$STATIC" == true ]]; then
     case "$ARCH" in
         amd64)   CARGO_TARGET="x86_64-unknown-linux-musl" ;;
         arm64)   CARGO_TARGET="aarch64-unknown-linux-musl" ;;
-        loong64) CARGO_TARGET="loongarch64-unknown-linux-musl" ;;
+        loongarch64) CARGO_TARGET="loongarch64-unknown-linux-musl" ;;
         *) log_err "不支持的目标架构: $ARCH"; exit 1 ;;
     esac
 else
@@ -133,7 +133,7 @@ if [[ "$SKIP_BUILD" == false ]]; then
             fi
             log_info "使用 cross 进行 aarch64 musl 交叉编译..."
             cross build --release --target "$CARGO_TARGET" 2>&1
-        elif [[ "$ARCH" == "loong64" ]]; then
+        elif [[ "$ARCH" == "loongarch64" ]]; then
             # 龙芯 LoongArch musl 交叉编译：rustls 依赖 ring（含 C/汇编），
             # 用 zig 作交叉 C 编译器（自带 loongarch64-linux-musl 目标，无需专门装 loongarch64 工具链）
             if ! command -v zig >/dev/null 2>&1; then
