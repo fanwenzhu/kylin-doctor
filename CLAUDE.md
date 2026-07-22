@@ -18,6 +18,7 @@ cargo test -p kylin-doctor-core # 只运行核心库测试
 cargo check                    # 检查编译警告
 ./build-deb.sh                 # 构建当前架构 deb 包（输出到 dist/）
 ./build-deb.sh --arch arm64    # 交叉编译 arm64 deb 包
+./build-deb.sh --arch loong64  # 交叉编译龙芯 loongarch64 deb 包（需 zig + cargo-zigbuild）
 ```
 
 ## 版本管理（强制）
@@ -31,13 +32,16 @@ cargo check                    # 检查编译警告
    ./build-deb.sh --static                # amd64 musl 静态
    cross build --release --target aarch64-unknown-linux-musl  # arm64 musl 静态（用 cross 工具）
    ./build-deb.sh --arch arm64 --static --skip-build          # 打包 arm64 deb
+   ./build-deb.sh --arch loong64                             # loong64 musl 静态（需 zig + cargo-zigbuild，自动装 rustup target）
    ```
-   **注意**: arm64 必须用 `cross` 工具编译（`cargo install cross`），直接用 `aarch64-linux-gnu-gcc` 编译 musl 目标会失败（符号不兼容）。
+   **注意**:
+   - arm64 必须用 `cross` 工具编译（`cargo install cross`），直接用 `aarch64-linux-gnu-gcc` 编译 musl 目标会失败（符号不兼容）。
+   - loong64 必须用 `cargo-zigbuild`（`cargo install cargo-zigbuild`）+ `zig`（下载预编译二进制加入 PATH）。rustls 依赖 ring 含 C/汇编，zig 作交叉 C 编译器；脚本自动 `rustup target add loongarch64-unknown-linux-musl`。
    **构建后必须验证**：
    ```bash
    # 检查版本号
-   strings dist/kylin-doctor_*.deb | grep "v0\.3\."
-   # 本地启动测试
+   strings dist/kylin-doctor_*.deb | grep "v0\.5\."
+   # 本地启动测试（仅 amd64 可本机跑；arm64/loong64 为交叉产物，验证 file 架构 + 静态链接）
    timeout 8 target/release/kylin-doctor-web & sleep 5 && curl -s http://127.0.0.1:8080/api/status && pkill kylin-doctor-web
    ```
 4. **按需更新文档** — 如涉及功能变更或用法调整，同步更新 `USAGE.md` 和 `README.md`
@@ -70,6 +74,8 @@ cargo check                    # 检查编译警告
 | `OllamaProvider` | Ollama 本地 API | ✅ | ✅ |
 | `OpenAiCompatProvider` | OpenAI 兼容 `/chat/completions` | ✅ | ✅ |
 | `AnthropicProvider` | Anthropic Messages API `/v1/messages` | ✅ | ✅ |
+
+**TLS 后端**: reqwest 用 `rustls-tls-native-roots`（纯 Rust + ring + 系统根证书），无 OpenSSL C 依赖，便于 loongarch64 等架构交叉编译。三 provider 均通过默认 `reqwest::Client`（`connect_timeout(10s)` + `timeout(120s)`）发 HTTPS，证书严格校验（fail-closed）。
 
 ## 关键文件速查
 

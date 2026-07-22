@@ -5,6 +5,24 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.0] - 2026-07-22
+
+### 新增 (Added) — 龙芯 LoongArch 架构支持
+- **loong64 deb 包**: 新增龙芯 LoongArch（3A5000 等）架构支持。`./build-deb.sh --arch loong64` 交叉编译，用 cargo-zigbuild + zig 作交叉 C 编译器（编译 ring 的 C/汇编），生成 `loongarch64-unknown-linux-musl` 完全静态二进制，无 glibc/openssl 运行时依赖
+- **deb Recommends 新增 ca-certificates**: rustls 读取系统 CA 库，显式推荐 ca-certificates 避免最小化系统上 HTTPS 握手失败
+
+### 改进 (Changed) — TLS 后端切换为 rustls
+- **reqwest 从 native-tls-vendored 切换为 rustls-tls-native-roots**: 消除 vendored OpenSSL C 依赖，简化交叉编译（loongarch64 无可用 OpenSSL 交叉工具链）。三 provider（Ollama/Anthropic/OpenAI 兼容）HTTPS 行为不变，证书校验保持严格（fail-closed，无静默降级）
+- **install.sh 移除 libssl-dev 依赖**: rustls 切换后源码编译不再需要 OpenSSL 开发头，移除 libssl-dev/openssl 安装及版本冲突修复逻辑
+
+### 修复 (Fixed) — 多agent对抗审查
+- **loong64 构建缺 rustup target 检查**: cargo-zigbuild 不自动安装 rust-std，新增 `rustup target add loongarch64-unknown-linux-musl` 前置检查，避免换机器构建失败
+- **http2 feature 丢失**: `default-features=false` 意外移除 http2，云端 API 退化为 HTTP/1.1；features 显式加回 `http2`
+- **build-deb.sh loong64 分支重复 RUSTFLAGS**: 删除冗余 export（静态块顶部已统一设置）
+
+### 测试 (Tests)
+- **测试覆盖保持 107**: 所有现有测试通过，TLS 后端切换无功能回归
+
 ## [0.4.0] - 2026-07-01
 
 ### 安全修复 (Security) — 多agent对抗审查

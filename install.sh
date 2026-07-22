@@ -369,7 +369,10 @@ detect_pkg_manager() {
 # ============================================================
 
 # 修复 libssl-dev 版本冲突 (Kylin 常见问题)
+# 注：v0.5.0 起 TLS 后端切换为 rustls，源码编译不再依赖 libssl-dev，此函数保留为 no-op
 fix_libssl_dev() {
+    log_info "rustls 后端无需 libssl-dev，跳过检查"
+    return 0
     if [[ "$PKG_MANAGER" != "apt" ]]; then
         log_info "非 apt 系统，跳过 libssl-dev 检查"
         return 0
@@ -632,7 +635,7 @@ step_2_install_deps() {
         dmidecode lm-sensors
         iproute2 iputils-ping
         fontconfig
-        build-essential pkg-config libssl-dev
+        build-essential pkg-config
     )
 
     # 根据包管理器调整包名
@@ -643,7 +646,7 @@ step_2_install_deps() {
             dmidecode lm_sensors
             iproute2 iputils
             fontconfig
-            base-devel openssl
+            base-devel
         )
     fi
 
@@ -660,10 +663,6 @@ step_2_install_deps() {
                 if ! command -v pkg-config &>/dev/null; then
                     to_install+=("$pkg")
                 fi
-                ;;
-            libssl-dev|openssl)
-                # 总是尝试安装，编译需要
-                to_install+=("$pkg")
                 ;;
             *)
                 to_install+=("$pkg")
