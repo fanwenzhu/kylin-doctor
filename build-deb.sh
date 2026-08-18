@@ -3,11 +3,17 @@ set -euo pipefail
 
 # ============================================================
 # kylin-doctor deb 打包脚本
-# 用法: ./build-deb.sh [--arch amd64|arm64] [--skip-build] [--static]
+# 用法: ./build-deb.sh [--arch amd64|arm64|loongarch64] [--skip-build] [--static]
+# 注: amd64/arm64 默认 gnu 动态，--static 切 musl 静态；
+#     loongarch64 固定 gnu 动态（见下方说明），--static 对其无效。
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
+
+# 构建中途失败时清理半成品 BUILD_DIR（成功时已由脚本末尾删除，trap 再删为空操作）
+BUILD_DIR=""
+trap 'rm -rf "$BUILD_DIR" 2>/dev/null || true' EXIT
 
 # --- 颜色 ---
 RED='\033[0;31m'
@@ -38,14 +44,14 @@ while [[ $# -gt 0 ]]; do
             echo "选项:"
             echo "  --arch ARCH      指定目标架构 (amd64、arm64 或 loongarch64，默认自动检测)"
             echo "  --skip-build     跳过编译，使用已有的二进制"
-            echo "  --static         使用 musl 静态编译，消除 glibc 依赖"
+            echo "  --static         使用 musl 静态编译，消除 glibc 依赖（仅 amd64/arm64）"
             echo "  -h, --help       显示帮助"
             echo ""
             echo "示例:"
             echo "  $0                          # 编译当前架构并打包"
-            echo "  $0 --static                 # 静态编译当前架构并打包"
+            echo "  $0 --static                 # 静态编译当前架构并打包（amd64/arm64 musl）"
             echo "  $0 --arch arm64             # 交叉编译 arm64 并打包"
-            echo "  $0 --arch loongarch64           # 交叉编译龙芯 loongarch64 并打包（强制 musl 静态）"
+            echo "  $0 --arch loongarch64           # 交叉编译龙芯 loongarch64 并打包（gnu 动态，需 loongarch64-linux-gnu-gcc）"
             echo "  $0 --arch amd64 --skip-build  # 跳过编译，直接打包"
             exit 0
             ;;
@@ -64,12 +70,16 @@ if [[ -z "$ARCH" ]]; then
     esac
 fi
 
-# loongarch64 (龙芯 LoongArch) 仅支持 musl 静态编译：
-# TLS 用 rustls（依赖 ring，含 C/汇编），需要 zig 作交叉 C 编译器。
-# zig 自带 loongarch64-linux-musl 目标，无需专门装 loongarch64 交叉 gcc。
-if [[ "$ARCH" == "loongarch64" && "$STATIC" == false ]]; then
-    log_warn "loongarch64 强制使用 musl 静态编译，已自动开启 --static"
-    STATIC=true
+# loongarch64 (龙芯 LoongArch) 固定使用 gnu 动态编译，不走 musl 静态：
+# 原因：zig 自带的 loongarch64-linux-musl 的 signal/sigaction 实现有缺陷，
+#   Rust std 启动时 signal(SIGPIPE, SIG_IGN) 返回 SIG_ERR，触发断言 abort
+#   （fatal runtime error: signal(libc::SIGPIPE, ...) != libc::SIG_ERR）。
+#   loongarch64 架构 glibc≥2.36（glibc 2.36 才进主线），任何能引导龙芯的
+#   系统自带 glibc 都够新，gnu 动态不存在「工控机 GLIBC_x.xx not found」风险。
+#   故 loongarch64 用 loongarch64-unknown-linux-gnu + loongarch64-linux-gnu-gcc。
+if [[ "$ARCH" == "loongarch64" && "$STATIC" == true ]]; then
+    log_warn "loongarch64 不支持 musl 静态编译（SIGPIPE 断言 bug），改用 gnu 动态"
+    STATIC=false
 fi
 
 # 判断是否需要交叉编译
@@ -79,20 +89,26 @@ if [[ "$STATIC" == true ]]; then
     case "$ARCH" in
         amd64)   CARGO_TARGET="x86_64-unknown-linux-musl" ;;
         arm64)   CARGO_TARGET="aarch64-unknown-linux-musl" ;;
-        loongarch64) CARGO_TARGET="loongarch64-unknown-linux-musl" ;;
-        *) log_err "不支持的目标架构: $ARCH"; exit 1 ;;
+        *) log_err "不支持的目标架构: $ARCH（musl 静态仅支持 amd64/arm64）"; exit 1 ;;
     esac
 else
     case "$ARCH" in
-        amd64)  CARGO_TARGET="x86_64-unknown-linux-gnu" ;;
-        arm64)  CARGO_TARGET="aarch64-unknown-linux-gnu" ;;
-        *) log_err "不支持的目标架构: $ARCH（非静态仅支持 amd64/arm64）"; exit 1 ;;
+        amd64)        CARGO_TARGET="x86_64-unknown-linux-gnu" ;;
+        arm64)        CARGO_TARGET="aarch64-unknown-linux-gnu" ;;
+        loongarch64)  CARGO_TARGET="loongarch64-unknown-linux-gnu" ;;
+        *) log_err "不支持的目标架构: $ARCH"; exit 1 ;;
     esac
 fi
 
-if [[ "$STATIC" == false ]] && \
-   { [[ "$ARCH" == "arm64" && "$HOST_ARCH" == "x86_64" ]] || \
-     [[ "$ARCH" == "amd64" && "$HOST_ARCH" == "aarch64" ]]; }; then
+# 宿主与目标架构不同即为交叉编译
+HOST_TARGET=""
+case "$HOST_ARCH" in
+    x86_64)       HOST_TARGET="amd64" ;;
+    aarch64)      HOST_TARGET="arm64" ;;
+    loongarch64)  HOST_TARGET="loongarch64" ;;
+    *) log_err "不支持的宿主架构: $HOST_ARCH"; exit 1 ;;
+esac
+if [[ -n "$HOST_TARGET" && "$ARCH" != "$HOST_TARGET" ]]; then
     CROSS=true
 fi
 
@@ -102,11 +118,11 @@ log_info "目标架构: $ARCH"
 [[ "$CROSS" == true ]] && log_info "交叉编译: $CARGO_TARGET"
 
 # --- 读取版本号 ---
-VERSION=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
-if [[ -z "$VERSION" ]]; then
-    log_err "无法从 Cargo.toml 读取版本号"
+if ! grep -q '^version' Cargo.toml; then
+    log_err "无法从 Cargo.toml 读取版本号（未找到 version 字段）"
     exit 1
 fi
+VERSION=$(grep -m1 '^version' Cargo.toml | sed 's/.*"\(.*\)"/\1/')
 
 PACKAGE_NAME="kylin-doctor"
 DEB_NAME="${PACKAGE_NAME}_${VERSION}_${ARCH}"
@@ -133,26 +149,6 @@ if [[ "$SKIP_BUILD" == false ]]; then
             fi
             log_info "使用 cross 进行 aarch64 musl 交叉编译..."
             cross build --release --target "$CARGO_TARGET" 2>&1
-        elif [[ "$ARCH" == "loongarch64" ]]; then
-            # 龙芯 LoongArch musl 交叉编译：rustls 依赖 ring（含 C/汇编），
-            # 用 zig 作交叉 C 编译器（自带 loongarch64-linux-musl 目标，无需专门装 loongarch64 工具链）
-            if ! command -v zig >/dev/null 2>&1; then
-                log_err "找不到 zig（loongarch64 交叉 C 编译器）"
-                log_err "安装: 下载 https://ziglang.org/download/ 的预编译二进制并加入 PATH"
-                exit 1
-            fi
-            if ! command -v cargo-zigbuild >/dev/null 2>&1; then
-                log_err "找不到 cargo-zigbuild"
-                log_err "安装: cargo install cargo-zigbuild"
-                exit 1
-            fi
-            # cargo-zigbuild 只替换 C 编译器/linker，底层 cargo 仍需 rust-std 目标
-            if ! rustup target list --installed 2>/dev/null | grep -q "loongarch64-unknown-linux-musl"; then
-                log_info "安装 rust-std 目标 loongarch64-unknown-linux-musl..."
-                rustup target add loongarch64-unknown-linux-musl || { log_err "rustup target add 失败"; exit 1; }
-            fi
-            log_info "使用 cargo-zigbuild 编译 loongarch64 musl（zig 作交叉 C 编译器）..."
-            cargo zigbuild --release --target "$CARGO_TARGET" 2>&1
         else
             # 本机 musl 编译，检查 musl-gcc
             if ! which musl-gcc >/dev/null 2>&1; then
@@ -166,7 +162,8 @@ if [[ "$SKIP_BUILD" == false ]]; then
     elif [[ "$CROSS" == true ]]; then
         log_info "交叉编译 release 版本 ($CARGO_TARGET)..."
 
-        # 检查交叉编译器
+        # 检查交叉编译器（CARGO_TARGET_*_LINKER 是 cargo/rustc 的 -C linker 约定；
+        # CC_<target> 是 cc crate 识别的形式，编译 ring 的 C/汇编用）
         case "$ARCH" in
             arm64)
                 if ! which aarch64-linux-gnu-gcc >/dev/null 2>&1; then
@@ -175,8 +172,38 @@ if [[ "$SKIP_BUILD" == false ]]; then
                     exit 1
                 fi
                 export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc
+                export CC_aarch64_unknown_linux_gnu=aarch64-linux-gnu-gcc
                 ;;
+            amd64)
+                if ! which x86_64-linux-gnu-gcc >/dev/null 2>&1; then
+                    log_err "找不到交叉编译器 x86_64-linux-gnu-gcc"
+                    log_err "安装: sudo apt install gcc-x86-64-linux-gnu (Debian) 或 sudo dnf install gcc-x86-64-linux-gnu (RHEL)"
+                    exit 1
+                fi
+                export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc
+                export CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc
+                ;;
+            loongarch64)
+                # 龙芯 LoongArch gnu 动态交叉编译：rustls 依赖 ring（含 C/汇编），
+                # 用 loongarch64-linux-gnu-gcc 作交叉 C 编译器与 linker。
+                if ! which loongarch64-linux-gnu-gcc >/dev/null 2>&1; then
+                    log_err "找不到交叉编译器 loongarch64-linux-gnu-gcc"
+                    log_err "安装: sudo apt install gcc-loongarch64-linux-gnu (Debian/loongnix)"
+                    log_err "  或 sudo dnf install gcc-loongarch64-linux-gnu (OpenCloudOS/RHEL 系)"
+                    log_err "  或从 https://github.com/loongson/build-tools 下载 LoongArch 交叉工具链加入 PATH"
+                    exit 1
+                fi
+                export CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_LINKER=loongarch64-linux-gnu-gcc
+                export CC_loongarch64_unknown_linux_gnu=loongarch64-linux-gnu-gcc
+                ;;
+            *) log_err "未配置 $ARCH 的 gnu 交叉编译器支持"; exit 1 ;;
         esac
+
+        # 确保 rust-std 目标已安装（cargo 交叉编译需要）
+        if ! rustup target list --installed 2>/dev/null | grep -q "$CARGO_TARGET"; then
+            log_info "安装 rust-std 目标 $CARGO_TARGET..."
+            rustup target add "$CARGO_TARGET" || { log_err "rustup target add 失败"; exit 1; }
+        fi
 
         cargo build --release --target "$CARGO_TARGET" 2>&1
     else
@@ -256,6 +283,13 @@ Description: 银河麒麟桌面系统自我诊断工具
  支持 AI 智能分析（本地 Ollama + 云端大模型）。
  提供 CLI 命令行和 Web 仪表盘两种使用方式。
 EOF
+
+# loongarch64 gnu 动态包依赖 glibc：loongarch64 架构 glibc≥2.36（glibc 2.36 才进
+# 主线），声明 libc6 (>= 2.36) 与运行环境匹配。amd64/arm64 走 musl 静态无 C 库依赖；
+# 其 gnu 动态非标准路径不在此声明（如需发布需另行用 readelf -V 提取实际 GLIBC 符号版本）。
+if [[ "$ARCH" == "loongarch64" && "$STATIC" == false ]]; then
+    sed -i '/^Recommends:/i Depends: libc6 (>= 2.36)' "$BUILD_DIR/DEBIAN/control"
+fi
 
 # --- 生成 DEBIAN/postinst ---
 log_info "生成 postinst 脚本..."

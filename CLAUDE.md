@@ -18,7 +18,7 @@ cargo test -p kylin-doctor-core # 只运行核心库测试
 cargo check                    # 检查编译警告
 ./build-deb.sh                 # 构建当前架构 deb 包（输出到 dist/）
 ./build-deb.sh --arch arm64    # 交叉编译 arm64 deb 包
-./build-deb.sh --arch loongarch64  # 交叉编译龙芯 loongarch64 deb 包（需 zig + cargo-zigbuild）
+./build-deb.sh --arch loongarch64  # 交叉编译龙芯 loongarch64 deb 包（gnu 动态，需 loongarch64-linux-gnu-gcc）
 ```
 
 ## 版本管理（强制）
@@ -27,21 +27,21 @@ cargo check                    # 检查编译警告
 
 1. **更新版本号** — `Cargo.toml` 的 `[workspace.package].version`（语义化版本）
 2. **更新 CHANGELOG.md** — 按 Keep a Changelog 格式记录本次变更（新增/改进/修复）
-3. **重新构建 deb 包** — **必须静态编译（musl），禁止动态链接（glibc）**，原因：工控机 glibc 版本较低，动态编译会导致 `GLIBC_x.xx not found` 运行失败。
+3. **重新构建 deb 包** — **发布用 deb：amd64/arm64 必须静态编译（musl），禁止动态链接（glibc）**，原因：工控机 glibc 版本较低，动态编译会导致 `GLIBC_x.xx not found` 运行失败。**loongarch64 是例外，固定 gnu 动态**（见下）。注：`./build-deb.sh` 不带 `--static` 时默认 gnu 动态，仅用于本机开发/快速验证，**不可作为发布产物**。
    ```bash
    ./build-deb.sh --static                # amd64 musl 静态
    cross build --release --target aarch64-unknown-linux-musl  # arm64 musl 静态（用 cross 工具）
    ./build-deb.sh --arch arm64 --static --skip-build          # 打包 arm64 deb
-   ./build-deb.sh --arch loongarch64                             # loongarch64 musl 静态（需 zig + cargo-zigbuild，自动装 rustup target）
+   ./build-deb.sh --arch loongarch64                             # loongarch64 gnu 动态（需 loongarch64-linux-gnu-gcc，自动装 rustup target）
    ```
    **注意**:
    - arm64 必须用 `cross` 工具编译（`cargo install cross`），直接用 `aarch64-linux-gnu-gcc` 编译 musl 目标会失败（符号不兼容）。
-   - loongarch64 必须用 `cargo-zigbuild`（`cargo install cargo-zigbuild`）+ `zig`（下载预编译二进制加入 PATH）。rustls 依赖 ring 含 C/汇编，zig 作交叉 C 编译器；脚本自动 `rustup target add loongarch64-unknown-linux-musl`。
+   - **loongarch64 必须用 gnu 动态（`loongarch64-unknown-linux-gnu`）+ `loongarch64-linux-gnu-gcc`，禁止 musl 静态**。原因：zig 自带的 `loongarch64-linux-musl` 的 signal/sigaction 实现有缺陷，Rust std 启动时 `signal(SIGPIPE, SIG_IGN)` 返回 `SIG_ERR` 触发断言 abort（`fatal runtime error: signal(libc::SIGPIPE, ...) != libc::SIG_ERR`）。loongarch64 架构 glibc≥2.36（glibc 2.36 才进主线），任何能引导龙芯的系统 glibc 都够新，gnu 动态不存在 `GLIBC_x.xx not found` 风险。安装交叉工具链：`sudo apt install gcc-loongarch64-linux-gnu`。rustls 依赖 ring 含 C/汇编，由 `loongarch64-linux-gnu-gcc` 编译；脚本自动 `rustup target add loongarch64-unknown-linux-gnu`。
    **构建后必须验证**：
    ```bash
    # 检查版本号
    strings dist/kylin-doctor_*.deb | grep "v0\.5\."
-   # 本地启动测试（仅 amd64 可本机跑；arm64/loongarch64 为交叉产物，验证 file 架构 + 静态链接）
+   # 本地启动测试（仅 amd64 可本机跑；arm64 musl / loongarch64 gnu 为交叉产物，用 file 验证架构、ldd 验证链接方式）
    timeout 8 target/release/kylin-doctor-web & sleep 5 && curl -s http://127.0.0.1:8080/api/status && pkill kylin-doctor-web
    ```
 4. **按需更新文档** — 如涉及功能变更或用法调整，同步更新 `USAGE.md` 和 `README.md`
