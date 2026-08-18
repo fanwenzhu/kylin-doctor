@@ -5,6 +5,26 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.1] - 2026-08-18
+
+### 修复 (Fixed) — 龙芯 SIGPIPE 启动崩溃
+- **loongarch64 deb 包改用 gnu 动态编译**: 原 `loongarch64-unknown-linux-musl`（cargo-zigbuild + zig）静态二进制在龙芯机上启动即崩：`fatal runtime error: signal(libc::SIGPIPE, handler) != libc::SIG_ERR, aborting`。根因：zig 自带的 `loongarch64-linux-musl` 的 signal/sigaction 实现有缺陷，Rust std 启动时 `signal(SIGPIPE, SIG_IGN)` 返回 `SIG_ERR` 触发断言 abort。改为 `loongarch64-unknown-linux-gnu` + `loongarch64-linux-gnu-gcc` 交叉编译，依赖系统 glibc（loongarch64 架构 glibc≥2.36，无 `GLIBC_x.xx not found` 风险）。amd64/arm64 仍保持 musl 静态。
+- **deb control 新增 `Depends: libc6 (>= 2.36)`**: gnu 动态包声明 glibc 运行时依赖（musl 静态包不受影响）。
+- **build-deb.sh loongarch64 分支重构**: 移除 zig/cargo-zigbuild 依赖，改用 `loongarch64-linux-gnu-gcc`；交叉判定改为「宿主与目标架构不同即交叉」，支持 loongarch64 宿主本机编译。
+
+### 修复 (Fixed) — 多 agent 对抗性审查（18 项确认）
+- **build-deb.sh 交叉编译 CC 变量名修正**: `CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_CC` 对 cc crate 无效（cc crate 只认 `CC_<target>` 形式），改为 `CC_loongarch64_unknown_linux_gnu`；arm64/amd64 同步补 `CC_<target>`。
+- **build-deb.sh 交叉编译补 amd64 分支 + `*)` 兜底**: 原 case 缺 `amd64)` 分支且无默认分支，aarch64/loongarch64 宿主打 amd64 会静默误用宿主 cc；现显式检查 `x86_64-linux-gnu-gcc`，未配置的目标显式报错。
+- **build-deb.sh HOST_ARCH case 补 `*)` 兜底**: riscv64 等未列宿主 + 显式 `--arch` 会静默产出架构不符的 deb，现显式报错。
+- **build-deb.sh Depends 注入收窄到 loongarch64**: 原 `STATIC==false` 条件把 `libc6 (>= 2.36)` 无差别套到 amd64/arm64 gnu 动态包（阈值是 loongarch64 专属），收窄为 `ARCH==loongarch64`。
+- **build-deb.sh VERSION 读取 pipefail 友好报错**: `grep|^version` 管道在 pipefail 下先于友好报错中止，改为先 `grep -q` 检查再提取。
+- **build-deb.sh 加 trap 清理**: 构建中途失败时清理半成品 `BUILD_DIR`。
+- **install.sh 识别 loongarch64 宿主架构**: 原架构 case 无 `loongarch64)`，龙芯机一键源码安装直接退出；现已补（本机 `cargo build` 无需交叉工具链）。
+- **DEPLOYMENT.md 移除 libssl-dev**: rustls 切换后源码编译无需 OpenSSL 开发头（0.5.0 遗留）。
+- **DEPLOYMENT.md 验证小节按架构区分链接方式**: 原对 loongarch64 动态包给出「静态链接」检查指引，已改为 amd64/arm64 静态、loongarch64 动态分别说明。
+- **README.md deb 示例更新**: 0.3.1 旧示例改为通配版本号 + 补 loongarch64 行；arm64「基于较新 GLIBC 交叉编译」过时描述改为 musl 静态说明。
+- **CLAUDE.md 发布规范澄清**: 注明 `./build-deb.sh` 默认 gnu 动态仅用于本机开发，不可作为发布产物。
+
 ## [0.5.0] - 2026-07-22
 
 ### 新增 (Added) — 龙芯 LoongArch 架构支持

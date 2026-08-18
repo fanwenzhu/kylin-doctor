@@ -62,8 +62,8 @@ sudo apt install -y openssh-server ufw auditd
 # 性能检测
 sudo apt install -y iproute2 iputils-ping
 
-# 编译依赖（仅构建时需要）
-sudo apt install -y build-essential pkg-config libssl-dev
+# 编译依赖（仅构建时需要；TLS 用 rustls，无需 OpenSSL 开发头）
+sudo apt install -y build-essential pkg-config
 ```
 
 > 💡 缺少某些工具不会导致程序崩溃，相关检测项会自动跳过并报告为"不可用"。
@@ -94,7 +94,7 @@ curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/unins
 
 ## deb 包安装（推荐生产环境）
 
-deb 包采用 musl 静态编译，无 glibc 依赖，可在任何 Linux 系统运行。
+deb 包编译方式按架构区分：amd64/arm64 采用 musl 静态编译，无 glibc 依赖，可在任何 Linux 系统运行；loongarch64 采用 gnu 动态编译（loongarch64 架构 glibc≥2.36，musl 静态在龙芯上有 SIGPIPE 断言 bug，故用 glibc 动态），依赖系统 glibc。
 
 ### 下载 deb 包
 
@@ -102,8 +102,9 @@ deb 包采用 musl 静态编译，无 glibc 依赖，可在任何 Linux 系统�
 
 | 架构 | 文件名 | 说明 |
 |------|--------|------|
-| amd64 | `kylin-doctor_*_amd64.deb` | x86_64 架构 |
-| arm64 | `kylin-doctor_*_arm64.deb` | ARM64 架构（飞腾、鲲鹏等） |
+| amd64 | `kylin-doctor_*_amd64.deb` | x86_64 架构（musl 静态） |
+| arm64 | `kylin-doctor_*_arm64.deb` | ARM64 架构（飞腾、鲲鹏等，musl 静态） |
+| loongarch64 | `kylin-doctor_*_loongarch64.deb` | 龙芯 LoongArch 架构（3A5000 等，gnu 动态） |
 
 ### 安装
 
@@ -131,9 +132,11 @@ kylin-doctor --version
 which kylin-doctor
 which kylin-doctor-web
 
-# 检查静态链接（无 glibc 依赖）
+# 检查链接方式（按架构区分）：
+#   amd64/arm64（musl 静态）—— ldd 报 "statically linked" / 无动态依赖
+#   loongarch64（gnu 动态）—— ldd 正常列出 libc.so.6 等，属预期
 file /usr/bin/kylin-doctor
-ldd /usr/bin/kylin-doctor 2>&1 || echo "静态链接 - 无动态依赖"
+ldd /usr/bin/kylin-doctor 2>&1 || echo "静态链接 - 无动态依赖（amd64/arm64 musl 静态）"
 ```
 
 ### 配置文件
