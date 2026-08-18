@@ -4,8 +4,9 @@ set -euo pipefail
 # ============================================================
 # kylin-doctor deb 打包脚本
 # 用法: ./build-deb.sh [--arch amd64|arm64|loongarch64] [--skip-build] [--static]
-# 注: amd64/arm64 默认 gnu 动态，--static 切 musl 静态；
-#     loongarch64 固定 gnu 动态（见下方说明），--static 对其无效。
+# 注: amd64/arm64 默认 gnu 动态，--static 切 musl 静态（发布用）；
+#     loongarch64 仅支持本机编译（交叉编译结构性不可行，见下方说明），
+#     在非龙芯宿主上 --arch loongarch64 会报错并引导用 install.sh。
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -51,7 +52,7 @@ while [[ $# -gt 0 ]]; do
             echo "  $0                          # 编译当前架构并打包"
             echo "  $0 --static                 # 静态编译当前架构并打包（amd64/arm64 musl）"
             echo "  $0 --arch arm64             # 交叉编译 arm64 并打包"
-            echo "  $0 --arch loongarch64           # 交叉编译龙芯 loongarch64 并打包（gnu 动态，需 loongarch64-linux-gnu-gcc）"
+            echo "  $0 --arch loongarch64       # ⚠️ 龙芯不支持交叉编译，请在龙芯本机跑 install.sh"
             echo "  $0 --arch amd64 --skip-build  # 跳过编译，直接打包"
             exit 0
             ;;
@@ -70,15 +71,23 @@ if [[ -z "$ARCH" ]]; then
     esac
 fi
 
-# loongarch64 (龙芯 LoongArch) 固定使用 gnu 动态编译，不走 musl 静态：
-# 原因：zig 自带的 loongarch64-linux-musl 的 signal/sigaction 实现有缺陷，
-#   Rust std 启动时 signal(SIGPIPE, SIG_IGN) 返回 SIG_ERR，触发断言 abort
-#   （fatal runtime error: signal(libc::SIGPIPE, ...) != libc::SIG_ERR）。
-#   loongarch64 架构 glibc≥2.36（glibc 2.36 才进主线），任何能引导龙芯的
-#   系统自带 glibc 都够新，gnu 动态不存在「工控机 GLIBC_x.xx not found」风险。
-#   故 loongarch64 用 loongarch64-unknown-linux-gnu + loongarch64-linux-gnu-gcc。
+# loongarch64 (龙芯 LoongArch) 不支持交叉编译打 deb，只能本机编译：
+#   - musl 静态（zig）：loongarch64-linux-musl 的 signal/sigaction 实现有缺陷，
+#     Rust std 启动时 signal(SIGPIPE, SIG_IGN) 返回 SIG_ERR 触发断言 abort。
+#   - gnu 动态（交叉）：构建机 glibc≥2.36 编出的二进制引用 GLIBC_2.36 符号，
+#     而麒麟 loongarch 把 loongarch backport 到 glibc 2.28，运行时 GLIBC_2.36
+#     not found 崩溃（ABI 不兼容，无法靠 patchelf/改依赖绕过）。
+# 故 loongarch64 只能在龙芯本机用本机 glibc 编译（产物符号与本机匹配）。
+# 交叉编译到 loongarch64 直接报错，引导用户用 install.sh 本机编译。
+if [[ "$ARCH" == "loongarch64" && "$HOST_ARCH" != "loongarch64" ]]; then
+    log_err "loongarch64 不支持交叉编译打 deb（musl 撞 SIGPIPE bug，gnu 撞 glibc 符号不匹配）"
+    log_err "请在龙芯本机用 install.sh 编译安装："
+    log_err "  curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/install.sh | sudo bash"
+    exit 1
+fi
+# loongarch64 本机编译：不支持 --static（无 loongarch musl 工具链），强制 gnu 动态本机编
 if [[ "$ARCH" == "loongarch64" && "$STATIC" == true ]]; then
-    log_warn "loongarch64 不支持 musl 静态编译（SIGPIPE 断言 bug），改用 gnu 动态"
+    log_warn "loongarch64 无 musl 工具链，改用 gnu 动态本机编译"
     STATIC=false
 fi
 
@@ -95,7 +104,7 @@ else
     case "$ARCH" in
         amd64)        CARGO_TARGET="x86_64-unknown-linux-gnu" ;;
         arm64)        CARGO_TARGET="aarch64-unknown-linux-gnu" ;;
-        loongarch64)  CARGO_TARGET="loongarch64-unknown-linux-gnu" ;;
+        loongarch64)  CARGO_TARGET="loongarch64-unknown-linux-gnu" ;;  # 仅本机编译可达
         *) log_err "不支持的目标架构: $ARCH"; exit 1 ;;
     esac
 fi
@@ -182,19 +191,6 @@ if [[ "$SKIP_BUILD" == false ]]; then
                 fi
                 export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_LINKER=x86_64-linux-gnu-gcc
                 export CC_x86_64_unknown_linux_gnu=x86_64-linux-gnu-gcc
-                ;;
-            loongarch64)
-                # 龙芯 LoongArch gnu 动态交叉编译：rustls 依赖 ring（含 C/汇编），
-                # 用 loongarch64-linux-gnu-gcc 作交叉 C 编译器与 linker。
-                if ! which loongarch64-linux-gnu-gcc >/dev/null 2>&1; then
-                    log_err "找不到交叉编译器 loongarch64-linux-gnu-gcc"
-                    log_err "安装: sudo apt install gcc-loongarch64-linux-gnu (Debian/loongnix)"
-                    log_err "  或 sudo dnf install gcc-loongarch64-linux-gnu (OpenCloudOS/RHEL 系)"
-                    log_err "  或从 https://github.com/loongson/build-tools 下载 LoongArch 交叉工具链加入 PATH"
-                    exit 1
-                fi
-                export CARGO_TARGET_LOONGARCH64_UNKNOWN_LINUX_GNU_LINKER=loongarch64-linux-gnu-gcc
-                export CC_loongarch64_unknown_linux_gnu=loongarch64-linux-gnu-gcc
                 ;;
             *) log_err "未配置 $ARCH 的 gnu 交叉编译器支持"; exit 1 ;;
         esac
@@ -284,11 +280,11 @@ Description: 银河麒麟桌面系统自我诊断工具
  提供 CLI 命令行和 Web 仪表盘两种使用方式。
 EOF
 
-# loongarch64 gnu 动态包依赖 glibc：loongarch64 架构 glibc≥2.36（glibc 2.36 才进
-# 主线），声明 libc6 (>= 2.36) 与运行环境匹配。amd64/arm64 走 musl 静态无 C 库依赖；
-# 其 gnu 动态非标准路径不在此声明（如需发布需另行用 readelf -V 提取实际 GLIBC 符号版本）。
+# loongarch64 本机编译的 gnu 动态包依赖系统 glibc。阈值取已知最低运行环境
+# （麒麟 V10 loongarch glibc 2.28）；本机编译产物符号≤本机 glibc，声明值仅作
+# 下限提示。amd64/arm64 走 musl 静态无 C 库依赖，不声明 Depends。
 if [[ "$ARCH" == "loongarch64" && "$STATIC" == false ]]; then
-    sed -i '/^Recommends:/i Depends: libc6 (>= 2.36)' "$BUILD_DIR/DEBIAN/control"
+    sed -i '/^Recommends:/i Depends: libc6 (>= 2.28)' "$BUILD_DIR/DEBIAN/control"
 fi
 
 # --- 生成 DEBIAN/postinst ---
