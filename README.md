@@ -15,11 +15,11 @@
 ### 一键安装
 
 ```bash
-# deb 安装（推荐，无需编译）
+# deb 安装（推荐，无需编译；仅 x86_64 / arm64）
 # 下载: https://github.com/fanwenzhu/kylin-doctor/releases
 sudo dpkg -i kylin-doctor_*_amd64.deb          # x86_64（musl 静态）
 sudo dpkg -i kylin-doctor_*_arm64.deb          # arm64 / 飞腾 / 鲲鹏（musl 静态）
-sudo dpkg -i kylin-doctor_*_loongarch64.deb    # 龙芯 LoongArch / 3A5000（gnu 动态）
+# 龙芯 LoongArch 无 deb 包，用下方 install.sh 本机编译
 
 # 或用安装脚本（编译 + 安装到 /usr/local/bin）
 curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/install.sh | sudo bash
@@ -35,8 +35,13 @@ sudo ./install.sh
 
 > **⚠️ 架构与编译方式说明**：
 > - **amd64 / arm64**：deb 包采用 musl 静态编译，无 glibc 依赖，可在任意 Linux（含嵌入式精简系统）运行。
-> - **loongarch64**：采用 gnu 动态编译（loongarch64 架构 glibc≥2.36，musl 静态在龙芯上有 SIGPIPE 启动崩溃 bug），依赖系统 glibc。
-> - 若目标系统过于精简或架构未覆盖，推荐用 `install.sh` 在目标机器上本地编译安装：
+> - **loongarch64（龙芯）**：不提供 deb 包。交叉编译两条路都走不通（musl 静态撞 SIGPIPE 断言 bug；gnu 动态交叉编撞 glibc 符号不匹配，麒麟 loongarch glibc 2.28 无 `GLIBC_2.36`）。**必须用 `install.sh` 在龙芯本机编译**（本机 glibc 编译，符号天然匹配）：
+>
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/install.sh | sudo bash
+> ```
+>
+> - 其它精简系统或未覆盖架构，同样推荐 `install.sh` 本机编译：
 >
 > ```bash
 > git clone https://github.com/fanwenzhu/kylin-doctor.git

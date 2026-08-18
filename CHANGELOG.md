@@ -5,7 +5,16 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
-## [0.5.1] - 2026-08-18
+## [0.5.2] - 2026-08-18
+
+### 修复 (Fixed) — 龙芯 loongarch64 改为本机编译（撤销 0.5.1 的 gnu 动态方案）
+- **撤销 0.5.1 loongarch64 gnu 动态交叉编译方案**: 0.5.1 把 loongarch64 从 musl 静态改为 `loongarch64-unknown-linux-gnu` 交叉编译，**实测在麒麟龙芯机上仍崩溃** `GLIBC_2.36 not found`。根因：loongarch64 是 glibc 2.36 才进主线的架构，任何用上游 glibc≥2.36 交叉编出的二进制都引用 `GLIBC_2.36` 符号；而麒麟 V10 loongarch 把 loongarch backport 到 glibc 2.28，符号差 8 个大版本，ABI 不兼容，patchelf/改依赖均无法绕过。0.5.1「loongarch64 glibc≥2.36」的判断是错的（麒麟 backport 到 2.28）。
+- **loongarch64 不再提供 deb 包，改用 install.sh 本机编译**: 交叉编译两条路都死（musl 静态撞 zig SIGPIPE 断言 bug；gnu 动态撞 glibc 符号不匹配）。`build-deb.sh --arch loongarch64` 在非龙芯宿主上改为明确报错并引导用户用 install.sh。龙芯本机编译走 `cargo build`（本机 glibc 2.28），产物符号天然匹配。官方 rustup 已提供 `loongarch64-unknown-linux-gnu` 预编译工具链，install.sh 自动安装。
+- **build-deb.sh loongarch64 本机编译保留**: HOST_ARCH=loongarch64 本机打包 deb 仍可用（本机编产物在本机能跑），Depends 改为 `libc6 (>= 2.28)`（匹配麒麟实际）。
+- **文档全面更正**: CLAUDE.md / DEPLOYMENT.md / README.md 删除「loongarch64 gnu 动态 / deb 包」描述，改为「龙芯用 install.sh 本机编译」；DEPLOYMENT 加「龙芯 LoongArch 架构」小节说明根因。
+- **GitHub Release**: 删除 v0.5.1（含错误 loongarch64 deb），发 v0.5.2（仅 amd64/arm64 deb，loongarch 引导本机编译）。
+
+## [0.5.1] - 2026-08-18 — ⚠️ 已撤销（gnu 动态方案在麒麟 loongarch 崩溃，见 0.5.2）
 
 ### 修复 (Fixed) — 龙芯 SIGPIPE 启动崩溃
 - **loongarch64 deb 包改用 gnu 动态编译**: 原 `loongarch64-unknown-linux-musl`（cargo-zigbuild + zig）静态二进制在龙芯机上启动即崩：`fatal runtime error: signal(libc::SIGPIPE, handler) != libc::SIG_ERR, aborting`。根因：zig 自带的 `loongarch64-linux-musl` 的 signal/sigaction 实现有缺陷，Rust std 启动时 `signal(SIGPIPE, SIG_IGN)` 返回 `SIG_ERR` 触发断言 abort。改为 `loongarch64-unknown-linux-gnu` + `loongarch64-linux-gnu-gcc` 交叉编译，依赖系统 glibc（loongarch64 架构 glibc≥2.36，无 `GLIBC_x.xx not found` 风险）。amd64/arm64 仍保持 musl 静态。

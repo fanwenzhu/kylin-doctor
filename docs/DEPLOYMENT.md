@@ -94,7 +94,7 @@ curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/unins
 
 ## deb 包安装（推荐生产环境）
 
-deb 包编译方式按架构区分：amd64/arm64 采用 musl 静态编译，无 glibc 依赖，可在任何 Linux 系统运行；loongarch64 采用 gnu 动态编译（loongarch64 架构 glibc≥2.36，musl 静态在龙芯上有 SIGPIPE 断言 bug，故用 glibc 动态），依赖系统 glibc。
+deb 包采用 musl 静态编译，无 glibc 依赖，可在任何 Linux 系统运行。**仅支持 amd64/arm64**；loongarch64（龙芯）不支持交叉编译打 deb（详见下方「龙芯 LoongArch」小节），请用 install.sh 本机编译。
 
 ### 下载 deb 包
 
@@ -104,7 +104,6 @@ deb 包编译方式按架构区分：amd64/arm64 采用 musl 静态编译，无 
 |------|--------|------|
 | amd64 | `kylin-doctor_*_amd64.deb` | x86_64 架构（musl 静态） |
 | arm64 | `kylin-doctor_*_arm64.deb` | ARM64 架构（飞腾、鲲鹏等，musl 静态） |
-| loongarch64 | `kylin-doctor_*_loongarch64.deb` | 龙芯 LoongArch 架构（3A5000 等，gnu 动态） |
 
 ### 安装
 
@@ -132,12 +131,21 @@ kylin-doctor --version
 which kylin-doctor
 which kylin-doctor-web
 
-# 检查链接方式（按架构区分）：
-#   amd64/arm64（musl 静态）—— ldd 报 "statically linked" / 无动态依赖
-#   loongarch64（gnu 动态）—— ldd 正常列出 libc.so.6 等，属预期
+# 检查链接方式（deb 包为 musl 静态）：
+#   ldd 报 "statically linked" / 无动态依赖
 file /usr/bin/kylin-doctor
-ldd /usr/bin/kylin-doctor 2>&1 || echo "静态链接 - 无动态依赖（amd64/arm64 musl 静态）"
+ldd /usr/bin/kylin-doctor 2>&1 || echo "静态链接 - 无动态依赖（musl 静态）"
 ```
+
+### 龙芯 LoongArch 架构
+
+龙芯 LoongArch（3A5000 等）**不提供 deb 包**，请用 install.sh 在龙芯本机编译安装：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/install.sh | sudo bash
+```
+
+install.sh 会自动安装 rustup（官方提供 `loongarch64-unknown-linux-gnu` 预编译工具链）并用本机 glibc 编译。**为什么龙芯不能用 deb**：loongarch64 交叉编译两条路都走不通——musl 静态（zig）撞 Rust std 的 SIGPIPE 断言 bug；gnu 动态交叉编译撞 glibc 符号版本不匹配（构建机 glibc≥2.36 编出的 `GLIBC_2.36` 符号，麒麟 loongarch 的 glibc 2.28 没有）。本机编译产物只引用本机 glibc 符号，天然匹配。
 
 ### 配置文件
 
