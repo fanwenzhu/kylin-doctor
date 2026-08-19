@@ -5,6 +5,20 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.5.3] - 2026-08-19
+
+### 改进 (Changed) — install.sh 全程国内镜像源
+针对国内（尤其麒麟龙芯机）网络环境，install.sh 默认启用国内镜像，覆盖所有联网环节：
+
+- **rustup 工具链走 USTC 镜像**: 自动导出 `RUSTUP_DIST_SERVER` / `RUSTUP_UPDATE_ROOT` 指向 `mirrors.ustc.edu.cn/rust-static`，修复国内机器下载 rustc/cargo/std（约 300MB）超时失败的问题（即此前第 3 步「Rust 安装失败」根因）。rustup-init 脚本本身仍从官方下载（体积极小），仅工具链大文件走镜像。
+- **cargo crates 走 USTC sparse 镜像**: 编译前自动写入项目级 `.cargo/config.toml`（`source.crates-io` → USTC sparse 索引），加速几百个依赖 crate 拉取。**仅作用于本次编译**，写入克隆下来的仓库目录，编译完随构建目录清理，不污染用户全局 cargo 配置。
+- **git clone 多镜像兜底**: 新增 `git_clone_repo()`，按顺序尝试直连 GitHub → ghfast.top → gh-proxy.com → mirror.ghproxy.com，每个 180 秒超时，失败自动换源，首个成功即用。升级时的 `git ls-remote`（查最新版本）同样兜底。
+- **rustup 加 `--profile minimal`**: 只装 rustc/cargo/rust-std，不装 docs/clippy，减小下载量，弱网友好；并加 3 次重试 + 失败时打印日志尾部便于排查。
+- **ollama 下载加重试**: ollama 无官方国内镜像，安装脚本下载加 `--retry 3` 提升成功率。
+- **新增 `--no-mirror` 开关**: 镜像源异常或海外机器时，`sudo ./install.sh --no-mirror` 回退官方源直连。
+
+> 本次为纯安装脚本改进，不涉及 Rust 源码，amd64/arm64 deb 二进制无功能变化（仅版本号更新）。
+
 ## [0.5.2] - 2026-08-18
 
 ### 修复 (Fixed) — 龙芯 loongarch64 改为本机编译（撤销 0.5.1 的 gnu 动态方案）

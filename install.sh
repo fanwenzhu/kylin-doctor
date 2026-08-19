@@ -80,6 +80,33 @@ UPGRADE=false
 LOG_FILE="/var/log/kylin-doctor-install.log"
 
 # ============================================================
+# 国内镜像源配置 (考虑国内网络环境，默认启用)
+# ============================================================
+# 用 --no-mirror 关闭镜像，回退到官方源 (海外机器或镜像异常时使用)
+USE_MIRROR=true
+
+# Rust 工具链镜像 (rustup 下载 rustc/cargo/std 用)
+# USTC 镜像，工具链大文件 (~300MB) 走此源
+MIRROR_RUSTUP_DIST="https://mirrors.ustc.edu.cn/rust-static"
+MIRROR_RUSTUP_ROOT="https://mirrors.ustc.edu.cn/rust-static/rustup"
+
+# cargo crates 镜像 (编译时拉依赖用)
+# USTC sparse 索引，速度优于 git 索引
+MIRROR_CRATES_REGISTRY="sparse+https://mirrors.ustc.edu.cn/crates.io-index/"
+
+# Git 仓库镜像前缀列表 (clone GitHub 仓库用)
+# 空字符串 = 直连 GitHub (优先尝试)，其余为 GitHub 代理加速
+# 按顺序尝试，首个成功即用
+GIT_MIRRORS=(
+    ""                                  # 直连 GitHub (优先)
+    "https://ghfast.top/"               # ghproxy 加速
+    "https://gh-proxy.com/"             # 备用代理 1
+    "https://mirror.ghproxy.com/"       # 备用代理 2
+)
+# 单次 git clone 超时 (秒)，超时则换下一个镜像
+GIT_CLONE_TIMEOUT=180
+
+# ============================================================
 # 日志系统
 # ============================================================
 
@@ -202,7 +229,10 @@ cleanup_on_error() {
     echo "    3. 编译失败 (跳过 Rust 安装):"
     echo "       sudo ./install.sh --skip-rust"
     echo ""
-    echo "    4. 手动安装参考:"
+    echo "    4. 镜像源异常 (回退官方源):"
+    echo "       sudo ./install.sh --no-mirror"
+    echo ""
+    echo "    5. 手动安装参考:"
     echo "       https://github.com/fanwenzhu/kylin-doctor/blob/master/docs/DEPLOYMENT.md"
     echo ""
     log_to_file "安装失败，退出码: $rc"
@@ -266,7 +296,7 @@ get_installed_version() {
 
 # 获取远程最新版本
 get_remote_version() {
-    git ls-remote --tags "$REPO_URL" 2>/dev/null \
+    git_ls_remote_repo 2>/dev/null \
         | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+$' \
         | sort -V \
         | tail -1 \
@@ -278,13 +308,13 @@ get_changelog_between() {
     local from_ver="$1"
     local to_ver="$2"
 
-    # 克隆仓库（浅克隆）
+    # 克隆仓库（浅克隆，走镜像兜底）
     local tmp_dir="/tmp/kylin-doctor-changelog-$$"
     rm -rf "$tmp_dir"
 
-    if git clone --depth 50 "$REPO_URL" "$tmp_dir" >> "$LOG_FILE" 2>&1; then
+    if git_clone_repo "$tmp_dir" >> "$LOG_FILE" 2>&1; then
         cd "$tmp_dir"
-        # 尝试获取两个版本之间的提交
+        # 尝试获取两个版本之间的提交 (浅克隆可能缺旧 tag，此时回退显示最近提交)
         local from_tag="v$from_ver"
         local to_tag="v$to_ver"
 
@@ -363,6 +393,110 @@ detect_pkg_manager() {
     fi
 
     log_to_file "包管理器: $PKG_MANAGER"
+}
+
+# ============================================================
+# 镜像源管理
+# ============================================================
+
+# 应用国内镜像配置 (导出 rustup 环境变量)
+# 注: cargo 镜像通过 write_cargo_config() 写入项目内 .cargo/config.toml，
+#     不污染用户全局 cargo 配置；git 镜像通过 git_clone_repo() 逐个尝试。
+setup_mirrors() {
+    if $USE_MIRROR; then
+        # rustup 工具链下载走 USTC 镜像
+        export RUSTUP_DIST_SERVER="$MIRROR_RUSTUP_DIST"
+        export RUSTUP_UPDATE_ROOT="$MIRROR_RUSTUP_ROOT"
+        log_info "已启用国内镜像: rustup(USTC) + cargo(USTC) + git(代理兜底)"
+        log_to_file "镜像: RUSTUP_DIST_SERVER=$RUSTUP_DIST_SERVER"
+    else
+        log_info "未启用镜像 (--no-mirror)，使用官方源"
+    fi
+}
+
+# 写入项目级 cargo 镜像配置 (仅作用于本次编译，不修改全局配置)
+# 用法: write_cargo_config <项目目录>
+write_cargo_config() {
+    local project_dir="$1"
+    local cargo_dir="$project_dir/.cargo"
+    local config_file="$cargo_dir/config.toml"
+
+    # 已存在配置则不覆盖 (尊重用户既有设置)
+    if [[ -f "$config_file" ]]; then
+        log_info "cargo 配置已存在，跳过镜像写入: $config_file"
+        return 0
+    fi
+
+    if ! $USE_MIRROR; then
+        return 0  # 未启用镜像，不写
+    fi
+
+    mkdir -p "$cargo_dir"
+    cat > "$config_file" << TOML
+# kylin-doctor 安装脚本自动生成的镜像配置 (项目级，仅本次编译生效)
+[source.crates-io]
+replace-with = "ustc"
+
+[source.ustc]
+registry = "$MIRROR_CRATES_REGISTRY"
+
+[net]
+git-fetch-with-cli = true
+TOML
+    log_ok "已写入 cargo 国内镜像配置 (USTC)"
+    log_to_file "cargo 镜像配置: $config_file"
+}
+
+# 拼接镜像 URL (前缀 + 原始 GitHub URL)
+# 用法: mirror_url <前缀> <原始URL>
+mirror_url() {
+    printf '%s%s' "$1" "$2"
+}
+
+# 带镜像兜底的 git clone (按 GIT_MIRRORS 顺序尝试，首个成功即用)
+# 用法: git_clone_repo <目标目录>
+git_clone_repo() {
+    local target="$1"
+    local prefix url
+
+    for prefix in "${GIT_MIRRORS[@]}"; do
+        url=$(mirror_url "$prefix" "$REPO_URL")
+        if [[ -z "$prefix" ]]; then
+            log_info "尝试直连 GitHub..."
+        else
+            log_info "尝试镜像: ${prefix}"
+        fi
+        log_to_file "git clone $url (branch=$BRANCH)"
+
+        # 带超时克隆，超时或失败则换下一个镜像
+        if timeout "$GIT_CLONE_TIMEOUT" \
+               git clone --depth 1 --branch "$BRANCH" "$url" "$target" \
+               >> "$LOG_FILE" 2>&1; then
+            log_ok "克隆成功 (via ${prefix:-直连})"
+            return 0
+        fi
+
+        # 清理半成品目录，准备下一个镜像
+        rm -rf "$target" 2>/dev/null || true
+        log_warn "克隆失败 (via ${prefix:-直连})，尝试下一个源..."
+    done
+
+    log_err "所有 Git 源均克隆失败"
+    return 1
+}
+
+# 带镜像兜底的 git ls-remote (获取远程 tag 用)
+# 用法: git_ls_remote_repo  (输出到 stdout)
+git_ls_remote_repo() {
+    local prefix url output
+    for prefix in "${GIT_MIRRORS[@]}"; do
+        url=$(mirror_url "$prefix" "$REPO_URL")
+        if output=$(timeout 60 git ls-remote --tags "$url" 2>/dev/null); then
+            echo "$output"
+            return 0
+        fi
+    done
+    return 1
 }
 
 # ============================================================
@@ -502,6 +636,7 @@ kylin-doctor 一键安装脚本
   --skip-ollama     跳过 Ollama 安装 (默认)
   --with-ollama     自动安装 Ollama 和推荐模型
   --fix-deps        自动修复依赖版本冲突 (Kylin 推荐)
+  --no-mirror       不使用国内镜像，回退官方源 (海外机器或镜像异常时用)
   --prefix <path>   安装目录 (默认: /usr/local)
   --branch <name>   Git 分支 (默认: master)
   --log <path>      日志文件路径 (默认: /var/log/kylin-doctor-install.log)
@@ -541,6 +676,7 @@ parse_args() {
             --skip-ollama)  SKIP_OLLAMA=true ;;
             --with-ollama)  WITH_OLLAMA=true; SKIP_OLLAMA=false ;;
             --fix-deps)     FIX_DEPS=true ;;
+            --no-mirror)    USE_MIRROR=false ;;
             --prefix)
                 shift
                 INSTALL_PREFIX="${1:-/usr/local}"
@@ -708,37 +844,52 @@ step_3_install_rust() {
 
         log_to_file "安装 Rust 到 $CARGO_HOME"
 
-        # 下载 rustup 安装脚本
+        # 下载 rustup 安装脚本 (脚本本身很小，通常可达；工具链大文件走镜像)
         local rustup_init="/tmp/rustup-init-$$"
         log_info "下载 Rust 安装脚本..."
         if ! curl --proto '=https' --tlsv1.2 --connect-timeout 30 --retry 3 -f -o "$rustup_init" https://sh.rustup.rs 2>> "$LOG_FILE"; then
             echo ""
             echo "  ${RED}Rust 安装脚本下载失败${NC}"
             echo ""
-            echo "  可能原因:"
-            echo "    1. 网络连接问题"
-            echo "    2. 无法访问 https://sh.rustup.rs"
+            echo "  可能原因: 无法访问 https://sh.rustup.rs"
             echo ""
             echo "  解决方案:"
-            echo "    1. 检查网络: ping sh.rustup.rs"
-            echo "    2. 使用国内镜像安装:"
-            echo "       export RUSTUP_DIST_SERVER=https://mirrors.ustc.edu.cn/rust-static"
-            echo "       export RUSTUP_UPDATE_ROOT=https://mirrors.ustc.edu.cn/rust-static/rustup"
-            echo "       curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
-            echo "    3. 跳过 Rust 安装:"
-            echo "       sudo ./install.sh --skip-rust"
+            echo "    1. 检查网络: curl -I https://sh.rustup.rs"
+            echo "    2. 跳过 Rust 安装 (已有 Rust 时): sudo ./install.sh --skip-rust"
             echo ""
             log_to_file "ERROR: Rust 安装脚本下载失败"
             exit 1
         fi
 
-        # 执行安装
-        if ! sh "$rustup_init" -y --default-toolchain stable >> "$LOG_FILE" 2>&1; then
-            rm -f "$rustup_init"
-            fail_with_hint "Rust 安装失败" \
-                "请手动安装: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
-        fi
+        # 执行安装 (带重试，工具链下载走 setup_mirrors 设置的 USTC 镜像)
+        # --profile minimal: 只装 rustc/cargo/rust-std，不装 docs/clippy，减小下载量
+        local rust_retry=0
+        local rust_max=3
+        local rust_ok=false
+        while [[ $rust_retry -lt $rust_max ]]; do
+            if sh "$rustup_init" -y --default-toolchain stable --profile minimal >> "$LOG_FILE" 2>&1; then
+                rust_ok=true
+                break
+            fi
+            rust_retry=$((rust_retry + 1))
+            if [[ $rust_retry -lt $rust_max ]]; then
+                log_warn "Rust 工具链下载失败，重试 ($rust_retry/$rust_max)..."
+                sleep 3
+            fi
+        done
         rm -f "$rustup_init"
+
+        if ! $rust_ok; then
+            echo ""
+            echo "  ${RED}Rust 工具链安装失败${NC}"
+            echo "  最近日志 (最后 20 行):"
+            tail -20 "$LOG_FILE" 2>/dev/null | sed 's/^/    /'
+            echo ""
+            fail_with_hint "Rust 安装失败" \
+                "1. 查看日志: tail -50 $LOG_FILE
+       2. 镜像异常时关闭重试: sudo ./install.sh --no-mirror
+       3. 手动安装: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal"
+        fi
 
         if [[ -f "$CARGO_HOME/env" ]]; then
             source "$CARGO_HOME/env"
@@ -747,7 +898,7 @@ step_3_install_rust() {
         fi
 
         if ! command -v rustc &>/dev/null; then
-            fail_with_hint "Rust 安装失败" \
+            fail_with_hint "Rust 安装失败 (rustc 未找到)" \
                 "请手动安装: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh"
         fi
 
@@ -766,9 +917,17 @@ step_4_build_install() {
     rm -rf "$BUILD_DIR"
 
     log_info "克隆仓库..."
-    run_cmd "克隆 $BRANCH 分支" git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$BUILD_DIR"
+    if ! git_clone_repo "$BUILD_DIR"; then
+        fail_with_hint "仓库克隆失败 (所有 Git 源均不可用)" \
+            "1. 检查网络连通性: curl -I https://github.com
+       2. 关闭镜像重试: sudo ./install.sh --no-mirror
+       3. 手动克隆: git clone $REPO_URL /tmp/kylin-doctor"
+    fi
 
     cd "$BUILD_DIR"
+
+    # 写入项目级 cargo 镜像配置 (加速 crates 拉取，仅本次编译生效)
+    write_cargo_config "$BUILD_DIR"
 
     log_info "编译项目 (release 模式，可能需要几分钟)..."
     echo ""
@@ -925,9 +1084,15 @@ step_upgrade() {
     rm -rf "$BUILD_DIR"
 
     log_info "克隆最新代码..."
-    run_cmd "克隆 $BRANCH 分支" git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$BUILD_DIR"
+    if ! git_clone_repo "$BUILD_DIR"; then
+        fail_with_hint "仓库克隆失败 (所有 Git 源均不可用)" \
+            "检查网络或重试: sudo ./install.sh --upgrade --no-mirror"
+    fi
 
     cd "$BUILD_DIR"
+
+    # 写入项目级 cargo 镜像配置
+    write_cargo_config "$BUILD_DIR"
 
     log_info "编译项目 (release 模式，可能需要几分钟)..."
     echo ""
@@ -1200,9 +1365,9 @@ step_5_install_ollama() {
         log_info "安装 Ollama..."
         log_to_file "下载并安装 Ollama"
 
-        # 下载 Ollama 安装脚本
+        # 下载 Ollama 安装脚本 (ollama 无官方国内镜像，加重试提升成功率)
         local ollama_script="/tmp/ollama-install-$$"
-        if ! curl -fsSL -o "$ollama_script" https://ollama.com/install.sh; then
+        if ! curl -fsSL --connect-timeout 30 --retry 3 -o "$ollama_script" https://ollama.com/install.sh; then
             log_warn "Ollama 安装脚本下载失败，AI 功能将不可用"
             log_info "可稍后手动安装: curl -fsSL https://ollama.com/install.sh | sh"
             return
@@ -1379,6 +1544,9 @@ main() {
     echo ""
 
     check_root "$@"
+
+    # 应用国内镜像配置 (rustup/cargo/git 全覆盖)
+    setup_mirrors
 
     # 升级模式
     if $UPGRADE; then

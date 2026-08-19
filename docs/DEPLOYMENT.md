@@ -85,6 +85,8 @@ curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/insta
 
 安装脚本会自动完成：检测系统环境 → 安装依赖 → 安装 Rust → 编译安装 → 配置 Ollama（可选）→ 验证安装。
 
+> **国内网络环境**：v0.5.3 起 install.sh 默认启用国内镜像，覆盖所有联网环节——rustup 工具链（USTC）、cargo 依赖 crate（USTC sparse）、git clone（直连 GitHub → ghfast.top → gh-proxy.com 多镜像兜底）。国内机器直接跑上面的命令即可，无需手动换源。镜像异常或海外机器可加 `--no-mirror` 回退官方源：`sudo ./install.sh --no-mirror`。
+
 ```bash
 # 卸载
 curl -fsSL https://raw.githubusercontent.com/fanwenzhu/kylin-doctor/master/uninstall.sh | sudo bash
